@@ -32,16 +32,8 @@ ENV REPO_PATH=/repo
 ENV PYTHONUNBUFFERED=1
 ENV CACHE_DIR=/tmp/agent-cache
 ENV RUN_HISTORY_FILE=/tmp/agent-cache/run_history.json
-ENV HEALTH_CHECK_PORT=8080
 
 # Create cache directory
 RUN mkdir -p /tmp/agent-cache
 
-# Expose health check port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
-
-CMD ["python", "scheduler.py"]
+CMD ["python", "agent_main.py"]

@@ -1,24 +1,20 @@
 """
 Scheduler for the SystemDesign agent.
 
-Runs the agent every 12 hours (configurable via AGENT_RUN_INTERVAL_HOURS).
+For GitHub Actions deployment: runs the agent once and exits.
+GitHub Actions cron handles the 12-hour scheduling.
 Features:
-- Health check HTTP server for Railway/containers
-- Run history persistence to avoid duplicate PRs
+- Run history persistence to avoid duplicate PRs across runs
 - Retry logic with exponential backoff
-- Graceful shutdown on SIGTERM/SIGINT
-- Metrics tracking (runs, successes, failures)
+- Metrics logging
 """
 
 import asyncio
 import json
 import logging
-import signal
 import sys
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from threading import Thread
 
 from agent_main import SystemDesignAgent
 from config import settings
@@ -30,69 +26,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent.scheduler")
 
-_shutdown = False
 _run_count = 0
 _success_count = 0
 _failure_count = 0
 _last_run_status = "never"
 _last_run_time = ""
-_health_server = None
-
-
-# ------------------------------------------------------------------ #
-#  Health check HTTP server
-# ------------------------------------------------------------------ #
-
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Simple health check handler for Railway/container orchestration."""
-
-    def do_GET(self):
-        if self.path == "/health" or self.path == "/healthz":
-            self._send_json(200, {
-                "status": "healthy",
-                "uptime_runs": _run_count,
-                "successes": _success_count,
-                "failures": _failure_count,
-                "last_run_status": _last_run_status,
-                "last_run_time": _last_run_time,
-            })
-        elif self.path == "/ready":
-            self._send_json(200, {"status": "ready"})
-        elif self.path == "/metrics":
-            self._send_json(200, {
-                "agent_runs_total": _run_count,
-                "agent_successes_total": _success_count,
-                "agent_failures_total": _failure_count,
-                "agent_last_run_status": _last_run_status,
-                "agent_last_run_time": _last_run_time,
-            })
-        else:
-            self._send_json(404, {"error": "not found"})
-
-    def _send_json(self, status_code, data):
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
-
-    def log_message(self, format, *args):
-        # Suppress default access logging
-        pass
-
-
-def start_health_server():
-    """Start the health check HTTP server in a background thread."""
-    global _health_server
-    try:
-        _health_server = HTTPServer(
-            (settings.HEALTH_CHECK_HOST, settings.HEALTH_CHECK_PORT),
-            HealthCheckHandler,
-        )
-        logger.info("Health check server started on %s:%d",
-                     settings.HEALTH_CHECK_HOST, settings.HEALTH_CHECK_PORT)
-        _health_server.serve_forever()
-    except OSError as exc:
-        logger.error("Failed to start health check server: %s", exc)
 
 
 # ------------------------------------------------------------------ #
@@ -124,65 +62,25 @@ def save_run_history(history: RunHistory) -> None:
 
 
 # ------------------------------------------------------------------ #
-#  Signal handling
+#  One-shot run (GitHub Actions)
 # ------------------------------------------------------------------ #
 
-def _handle_signal(signum, frame):
-    """Handle shutdown signals gracefully."""
-    global _shutdown
-    logger.info("Received signal %s. Shutting down...", signum)
-    _shutdown = True
-
-
-# ------------------------------------------------------------------ #
-#  Scheduler
-# ------------------------------------------------------------------ #
-
-async def run_scheduler() -> None:
-    """Run the agent on a schedule."""
-    interval_hours = settings.AGENT_RUN_INTERVAL_HOURS
-    interval_seconds = interval_hours * 3600
-
-    # Start health check server in background thread
-    health_thread = Thread(target=start_health_server, daemon=True)
-    health_thread.start()
-
-    # Load run history
-    history = load_run_history()
-    logger.info(
-        "Scheduler started. Running every %d hours. "
-        "Run history: %d previously added slugs.",
-        interval_hours, len(history.added_slugs),
-    )
-
-    # Run immediately on start
-    await _run_once(history)
-
-    # Then run on schedule
-    while not _shutdown:
-        logger.info("Next run in %d hours. Waiting...", interval_hours)
-        try:
-            await asyncio.sleep(interval_seconds)
-        except asyncio.CancelledError:
-            break
-
-        if _shutdown:
-            break
-
-        await _run_once(history)
-
-    logger.info("Scheduler stopped. Final stats: %d runs, %d successes, %d failures",
-                _run_count, _success_count, _failure_count)
-
-
-async def _run_once(history: RunHistory) -> None:
-    """Execute one agent run with retry logic."""
+async def run_once() -> None:
+    """Execute a single agent run with retry logic (GitHub Actions mode)."""
     global _run_count, _success_count, _failure_count, _last_run_status, _last_run_time
 
     _run_count += 1
     _last_run_time = datetime.now(timezone.utc).isoformat()
     max_retries = 3
     retry_delay = 60  # seconds
+
+    # Load run history from artifacts
+    history = load_run_history()
+    logger.info(
+        "Running agent (GitHub Actions mode). "
+        "Run history: %d previously added slugs.",
+        len(history.added_slugs),
+    )
 
     logger.info("=" * 60)
     logger.info("Starting agent run #%d...", _run_count)
@@ -202,6 +100,7 @@ async def _run_once(history: RunHistory) -> None:
             _success_count += 1
             _last_run_status = "success"
             logger.info("Agent run #%d completed successfully.", _run_count)
+            _log_summary()
             return
         except Exception as exc:
             _failure_count += 1
@@ -216,18 +115,30 @@ async def _run_once(history: RunHistory) -> None:
                 await asyncio.sleep(retry_delay * (attempt + 1))
 
     logger.error("Agent run #%d failed after %d attempts.", _run_count, max_retries)
+    _log_summary()
+    sys.exit(1)
+
+
+def _log_summary() -> None:
+    """Log a summary of the run for GitHub Actions logs."""
+    logger.info("=" * 60)
+    logger.info("RUN SUMMARY")
+    logger.info("=" * 60)
+    logger.info("Total runs: %d", _run_count)
+    logger.info("Successes: %d", _success_count)
+    logger.info("Failures: %d", _failure_count)
+    logger.info("Last status: %s", _last_run_status)
+    logger.info("Last run time: %s", _last_run_time)
+    logger.info("=" * 60)
 
 
 def main() -> None:
-    """Entry point for the scheduler."""
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
-
+    """Entry point for GitHub Actions."""
     try:
-        asyncio.run(run_scheduler())
+        asyncio.run(run_once())
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt. Exiting.")
-        sys.exit(0)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

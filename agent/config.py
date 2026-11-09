@@ -2,6 +2,7 @@
 Configuration settings for the SystemDesign agent.
 
 All settings can be overridden via environment variables.
+Deployed via GitHub Actions cron (every 12 hours).
 """
 
 import os
@@ -22,7 +23,6 @@ class Settings:
 
     # Agent
     AGENT_BRANCH_PREFIX: str = os.environ.get("AGENT_BRANCH_PREFIX", "agent/add-problems")
-    AGENT_RUN_INTERVAL_HOURS: int = int(os.environ.get("AGENT_RUN_INTERVAL_HOURS", "12"))
     AGENT_MAX_PROBLEMS_PER_RUN: int = int(os.environ.get("AGENT_MAX_PROBLEMS_PER_RUN", "5"))
     AGENT_SIMILARITY_THRESHOLD: float = float(os.environ.get("AGENT_SIMILARITY_THRESHOLD", "0.6"))
 
@@ -50,10 +50,6 @@ class Settings:
     # Cache
     CACHE_DIR: str = os.environ.get("CACHE_DIR", "/tmp/agent-cache")
     CACHE_TTL_HOURS: int = int(os.environ.get("CACHE_TTL_HOURS", "6"))
-
-    # Health check server (for Railway)
-    HEALTH_CHECK_HOST: str = os.environ.get("HEALTH_CHECK_HOST", "0.0.0.0")
-    HEALTH_CHECK_PORT: int = int(os.environ.get("HEALTH_CHECK_PORT", "8080"))
 
     # Logging
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")

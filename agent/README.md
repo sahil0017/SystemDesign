@@ -2,6 +2,8 @@
 
 Automated agent that scans trending system design resources, identifies missing problem sets, generates new problem README files, and creates GitHub PRs.
 
+**Deployed via GitHub Actions Cron** — runs every 12 hours automatically.
+
 ## Features
 
 - **Concurrent web scraping**: Scrapes 5 sources (AlgoMaster, HelloInterview, DesignGurus, Educative, GitHub Trending) concurrently
@@ -9,31 +11,25 @@ Automated agent that scans trending system design resources, identifies missing 
 - **Retry with backoff**: Exponential backoff retry for transient failures
 - **Fuzzy matching**: Levenshtein distance-based matching to catch near-duplicate problem names
 - **Problem-specific templates**: Tailored content for RAG, LLM, fraud detection, streaming, etc.
-- **Run history**: Persists added problems to avoid duplicate PRs across restarts
+- **Run history**: Persists added problems via GitHub Actions artifacts to avoid duplicate PRs
 - **PR deduplication**: Checks for existing open agent PRs before creating new ones
-- **Health check server**: HTTP endpoints for Railway/container orchestration (`/health`, `/ready`, `/metrics`)
 - **Max problems per run**: Limits PRs to 5 problems by default to keep them manageable
-- **Graceful shutdown**: Handles SIGTERM/SIGINT for clean container shutdown
+- **Streamlit dashboard**: Web UI to track problems and staff engineer progress
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
-│  Scheduler  │────►│   Agent      │────►│   Scraper   │────►│  Web Sites │
-│  (12h)      │     │  Orchestrator│     │  (5 sources)│     │            │
-└─────────────┘     └──────┬───────┘     └─────────────┘     └────────────┘
-                           │
-                    ┌──────▼───────┐
-                    │  Generator   │
-                    │  (fuzzy +    │
-                    │  templates)  │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │  GitHub CLI  │
-                    │  (PR +       │
-                    │  reviewer)   │
-                    └──────────────┘
+[GitHub Actions Cron (Every 12h)]
+       │
+       ▼
+ 1. Spins up Linux Runner
+ 2. Checks out target codebase
+ 3. Executes agent_main.py ───► (Scrapes/Evaluates problem sets)
+       │
+       ▼
+ 4. Modifies local project package files
+ 5. Auto-commits branch & pushes to GitHub
+ 6. Uses GitHub CLI to create PR & assign sahil0017
 ```
 
 ## Configuration
@@ -42,42 +38,37 @@ All settings are environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_TOKEN` | *(required)* | GitHub personal access token with `repo` scope |
+| `GITHUB_TOKEN` | *(set by Actions)* | GitHub token for auth |
 | `GITHUB_REPO_OWNER` | `sahil0017` | GitHub repository owner |
 | `GITHUB_REPO_NAME` | `SystemDesign` | GitHub repository name |
 | `GITHUB_REVIEWER` | `sahil0017` | GitHub username to add as PR reviewer |
-| `REPO_PATH` | `/repo` | Path to the cloned repository |
-| `AGENT_RUN_INTERVAL_HOURS` | `12` | Hours between agent runs |
+| `REPO_PATH` | `${{ github.workspace }}` | Path to the checked-out repository |
 | `AGENT_MAX_PROBLEMS_PER_RUN` | `5` | Max new problems per PR |
 | `AGENT_SIMILARITY_THRESHOLD` | `0.6` | Levenshtein similarity threshold (0-1) |
 | `CACHE_DIR` | `/tmp/agent-cache` | Directory for HTTP response cache |
 | `CACHE_TTL_HOURS` | `6` | Cache time-to-live in hours |
-| `HEALTH_CHECK_PORT` | `8080` | Port for health check HTTP server |
+| `RUN_HISTORY_FILE` | `/tmp/agent-cache/run_history.json` | Persisted run history |
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `DRY_RUN` | `false` | If true, skip git/gh commands |
 
 ## Deployment
 
-### Railway
+### GitHub Actions (Default)
 
-1. Create a new project from this repository
-2. Set environment variables:
-   - `GITHUB_TOKEN`: Your GitHub PAT with `repo` scope
-   - `REPO_PATH=/repo`
-   - `AGENT_RUN_INTERVAL_HOURS=12`
-3. Railway will automatically build from `Dockerfile` and deploy
+The agent runs automatically via `.github/workflows/agent.yml`:
 
-### Docker
+- **Schedule**: Every 12 hours (midnight and noon UTC)
+- **Manual trigger**: Available via "Run workflow" button in Actions tab
+- **Token**: Uses `GITHUB_TOKEN` (automatic, no setup needed)
+- **Artifacts**: Run history persisted between runs via GitHub Actions artifacts
 
-```bash
-docker build -f agent/Dockerfile -t systemdesign-agent .
-docker run -d \
-  -e GITHUB_TOKEN=your_token \
-  -e REPO_PATH=/repo \
-  -p 8080:8080 \
-  --name systemdesign-agent \
-  systemdesign-agent
-```
+To enable:
+1. Merge this PR
+2. Go to **Actions** → **SystemDesign Agent** → enable workflows if disabled
+3. The agent will run automatically every 12 hours
+
+To run manually:
+1. Go to **Actions** → **SystemDesign Agent** → **Run workflow**
 
 ### Local Development
 
@@ -86,7 +77,7 @@ cd agent
 pip install -r requirements.txt
 export GITHUB_TOKEN=your_token
 export REPO_PATH=/path/to/SystemDesign
-python scheduler.py
+python agent_main.py
 ```
 
 ### Diagnostic Mode
@@ -96,25 +87,33 @@ cd agent
 AGENT_MODE=diagnostic python agent_main.py
 ```
 
-## Health Check Endpoints
+## Streamlit Dashboard
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health status with run metrics |
-| `GET /ready` | Readiness check |
-| `GET /metrics` | Prometheus-style metrics |
+A web dashboard helps you track problems and your progress toward becoming a Staff Engineer:
 
-Example response:
-```json
-{
-  "status": "healthy",
-  "uptime_runs": 5,
-  "successes": 5,
-  "failures": 0,
-  "last_run_status": "success",
-  "last_run_time": "2025-01-01T12:00:00+00:00"
-}
+```bash
+cd agent/dashboard
+pip install -r ../requirements.txt
+streamlit run app.py
 ```
+
+### Dashboard Features
+
+| Page | Description |
+|------|-------------|
+| 📊 Dashboard | Overview of all problems by category with stats |
+| 📚 Skills | Skill breakdown with staff-level expectations |
+| 🎯 Staff Levels | L5 → L6 → L7 progression guide |
+| 🗺️ Learning Path | 4-phase roadmap from foundation to staff |
+| 🤖 Agent Status | Agent run history and recent PRs |
+| 🔍 Browse Problems | Search, filter, and view problem details |
+
+### Deploy Dashboard on Streamlit Cloud
+
+1. Go to https://share.streamlit.app
+2. Connect repository `sahil0017/SystemDesign`
+3. Set main file to `agent/dashboard/app.py`
+4. Add dependencies from `agent/requirements.txt`
 
 ## Files
 
@@ -124,12 +123,14 @@ Example response:
 | `scraper.py` | Web scraper with caching, retry, and concurrent fetching |
 | `problem_generator.py` | README generation with fuzzy matching and templates |
 | `github_client.py` | GitHub PR creation via `gh` CLI |
-| `scheduler.py` | Periodic scheduler with health check server |
+| `scheduler.py` | One-shot runner for GitHub Actions |
 | `config.py` | Environment-based configuration |
 | `models.py` | Data models (TrendingProblem, RunHistory, etc.) |
-| `Dockerfile` | Container image for Railway deployment |
-| `railway.json` | Railway deployment configuration |
+| `dashboard/app.py` | Streamlit dashboard for tracking progress |
+| `dashboard/README.md` | Dashboard documentation |
+| `Dockerfile` | Container image (for local Docker testing) |
 | `requirements.txt` | Python dependencies |
+| `.gitignore` | Python cache and temp files |
 
 ## How It Works
 
@@ -138,4 +139,4 @@ Example response:
 3. **Filter**: Compares against existing repo problems using fuzzy matching (Levenshtein distance)
 4. **Generate**: Creates tailored README files using problem-specific templates
 5. **PR**: Creates a GitHub PR with `sahil0017` as reviewer, checks for existing open PRs first
-6. **History**: Persists added problem slugs to avoid duplicates across runs
+6. **History**: Persists added problem slugs via GitHub Actions artifacts to avoid duplicates

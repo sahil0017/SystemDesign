@@ -148,16 +148,30 @@ class SystemDesignAgent:
 #  CLI
 # ------------------------------------------------------------------ #
 async def main() -> None:
-    """CLI entry point."""
+    """CLI entry point for GitHub Actions (one-shot run)."""
+    from models import RunHistory
+    from pathlib import Path
+    import json as json_mod
+
     agent = SystemDesignAgent()
 
     # If DIAGNOSTIC mode, run checks and exit
     if os.environ.get("AGENT_MODE") == "diagnostic":
         result = await agent.diagnose()
-        print(json.dumps(result, indent=2))
+        print(json_mod.dumps(result, indent=2))
         return
 
-    await agent.run()
+    # Load run history for deduplication across runs
+    history_path = Path(settings.RUN_HISTORY_FILE)
+    history = RunHistory()
+    if history_path.exists():
+        try:
+            data = json_mod.loads(history_path.read_text())
+            history = RunHistory.from_dict(data)
+        except Exception:
+            pass
+
+    await agent.run(history)
 
 
 if __name__ == "__main__":
