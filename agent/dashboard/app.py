@@ -11,6 +11,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 
 # ------------------------------------------------------------------ #
@@ -215,17 +216,17 @@ def discover_problems() -> dict:
     return problems
 
 
-def get_agent_run_history() -> list:
+def get_agent_run_history() -> dict:
     """Read the run history file to see what problems the agent has added."""
     history_file = Path(os.environ.get("RUN_HISTORY_FILE", "/tmp/agent-cache/run_history.json"))
     if history_file.exists():
         try:
             import json
             data = json.loads(history_file.read_text())
-            return data.get("added_slugs", [])
+            return data
         except Exception:
-            return []
-    return []
+            return {}
+    return {}
 
 
 def get_pr_history() -> list:
@@ -347,7 +348,7 @@ def render_agent_status():
         st.markdown("### How It Works")
         st.markdown("""
             1. **GitHub Actions Cron** triggers every 12 hours
-            2. Agent **scrapes** 5 sources for trending problems
+            2. Agent **scrapes** 9 sources for trending problems
             3. Compares with **existing** problems using fuzzy matching
             4. **Generates** new problem READMEs with staff-level insights
             5. **Creates a PR** with `sahil0017` as reviewer
@@ -356,11 +357,15 @@ def render_agent_status():
     with col2:
         st.markdown("### Sources Scraped")
         st.markdown("""
-            - **AlgoMaster** — System design course
+            - **AlgoMaster** — System design & LLD courses
             - **HelloInterview** — Interview prep platform
             - **DesignGurus** — System design master class
             - **Educative** — Grokking system design
             - **GitHub Trending** — Popular repositories
+            - **ByteByteGo** — System design newsletters
+            - **System Design Primer** — Open-source primer
+            - **Awesome System Design** — Curated resource lists
+            - **System Design Interview repo** — Community problem list
         """)
 
     st.markdown("### Recent PRs")
@@ -373,11 +378,35 @@ def render_agent_status():
     else:
         st.info("PR history not available (running locally without GitHub CLI auth).")
 
-    # Run history
-    added = get_agent_run_history()
-    st.metric("Problems Added by Agent", len(added))
-    if added:
-        st.markdown(f"**Recently added slugs:** `{', '.join(added[:10])}`")
+    # Run history — cross-reference agent-added slugs against repo contents
+    history = get_agent_run_history()
+    added_slugs = history.get("added_slugs", [])
+    last_run = history.get("last_run", "")
+
+    colA, colB, colC = st.columns(3)
+    with colA:
+        st.metric("Problems Added by Agent", len(added_slugs))
+    with colB:
+        st.metric("Last Agent Run", last_run[:10] if last_run else "never")
+    with colC:
+        st.metric("Total Problems in Repo", sum(len(v) for v in discover_problems().values()))
+
+    if added_slugs:
+        problems = discover_problems()
+        repo_slugs = set()
+        for plist in problems.values():
+            for p in plist:
+                if p.readme_path:
+                    repo_slugs.add(Path(p.readme_path).parent.name)
+
+        merged = [(slug, slug in repo_slugs) for slug in added_slugs]
+        df = pd.DataFrame(
+            [(s, "✅ in repo" if ok else "⏳ pending PR merge") for s, ok in merged],
+            columns=["Problem slug", "Status"],
+        )
+        st.dataframe(df, use_container_width=True, height=min(400, 35 * len(df) + 38))
+    else:
+        st.info("No agent run history found yet. Trigger the agent from the Actions tab.")
 
 
 def render_problem_detail(readme_path: str):

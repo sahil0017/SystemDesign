@@ -30,6 +30,29 @@ class TrendingProblem:
     source_count: int = 1
     last_seen: str = ""
 
+    _STOPWORDS = {
+        "a", "an", "the", "and", "or", "of", "to", "for", "your", "their",
+        "is", "are", "in", "on", "that", "this", "my", "our", "with", "how",
+        "what", "why", "strengthened", "ace", "pivoting",
+    }
+
+    def is_valid_name(self) -> bool:
+        """Reject prose fragments and non-English text scraped mid-sentence."""
+        words = self.name.lower().split()
+        if not (2 <= len(self.name) <= 60) or not words:
+            return False
+        if len(words) > 5 or any(w in self._STOPWORDS for w in words):
+            return False
+        # English problem names only — reject CJK, Arabic, Cyrillic, etc.
+        # (allow ASCII printable plus a few latin-1 accented letters)
+        if not all(c.isascii() or (0xC0 <= ord(c) <= 0xFF) for c in self.name):
+            return False
+        # Reject obvious non-problem titles (translations headers, nav labels)
+        banned = {"readme", "index", "navigation", "contents", "japanese", "chinese", "korean"}
+        if any(b in self.name.lower() for b in banned):
+            return False
+        return True
+
     @property
     def slug(self) -> str:
         """Return a URL-safe slug for the problem name."""

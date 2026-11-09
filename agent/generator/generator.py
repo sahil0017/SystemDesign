@@ -5,13 +5,14 @@ generates tailored README files based on problem keywords, and updates the main 
 """
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from agent.core.config import settings
 from agent.core.models import Category, ExistingProblem, GeneratedFile, TrendingProblem
-from agent.generator.fuzzy import normalize_name, similarity_ratio
+from agent.generator.fuzzy import normalize_name, route_subfolder, similarity_ratio
 from agent.generator.templates import (
     PROBLEM_TEMPLATES, HLD_TEMPLATE, LLD_TEMPLATE, DS_TEMPLATE,
     TRADEOFF_TEMPLATE, JAVA_TEMPLATE,
@@ -24,7 +25,7 @@ logger = logging.getLogger("agent.generator")
 # ------------------------------------------------------------------ #
 
 CATEGORY_PATHS = {
-    Category.HLD: ["hld/problems"],
+    Category.HLD: ["hld/problems", "hld/case-studies"],
     Category.LLD: ["lld/problems/easy", "lld/problems/medium", "lld/problems/hard", "lld/problems/concurrency"],
     Category.DISTRIBUTED_SYSTEMS: [
         "distributed-systems/problems/coordination",
@@ -36,14 +37,18 @@ CATEGORY_PATHS = {
         "distributed-systems/problems/scheduling",
     ],
     Category.TRADEOFFS: ["tradeoffs"],
-    Category.JAVA: [
-        "java/concurrency/problems",
-        "java/collections/problems",
-        "java/jvm/problems",
-        "java/performance/problems",
-        "java/streams/problems",
-    ],
+    Category.JAVA: ["java/problems"],
 }
+
+# Dedup also considers problems found in adjacent repo locations, regardless of
+# the category the source site tagged them with.
+DEDUP_EXTRA_PATHS = [
+    "db-design/problems",
+    "api-modeling/problems",
+    "hld/fundamentals",
+    "lld/fundamentals",
+    "distributed-systems/topics",
+]
 
 CATEGORY_DEFAULT_SUBPATH = {
     Category.HLD: "hld/problems",
@@ -68,21 +73,29 @@ class ProblemGenerator:
         """Scan the repo and return all existing problems."""
         problems: list = []
 
+        all_paths = []
         for category, relative_paths in CATEGORY_PATHS.items():
             for relative_path in relative_paths:
-                base = self.repo_path / relative_path
-                if not base.exists():
-                    continue
+                all_paths.append((category, relative_path))
+        # Extra locations scanned only for dedup (any problem with the same name
+        # anywhere means it already exists — category mismatches are common).
+        for relative_path in DEDUP_EXTRA_PATHS:
+            all_paths.append((None, relative_path))
 
-                for item in base.iterdir():
-                    if item.is_dir() and (item / "README.md").exists():
-                        name = item.name.replace("-", " ").title()
-                        problems.append(ExistingProblem(
-                            name=name,
-                            category=category,
-                            path=str(item),
-                            slug=item.name,
-                        ))
+        for category, relative_path in all_paths:
+            base = self.repo_path / relative_path
+            if not base.exists():
+                continue
+
+            for item in base.iterdir():
+                if item.is_dir() and (item / "README.md").exists():
+                    name = item.name.replace("-", " ").title()
+                    problems.append(ExistingProblem(
+                        name=name,
+                        category=category or Category.HLD,  # extra paths: category unknown; treated as HLD for routing but dedup uses name only
+                        path=str(item),
+                        slug=item.name,
+                    ))
 
         logger.info("Found %d existing problems in repo", len(problems))
         return problems
@@ -106,6 +119,10 @@ class ProblemGenerator:
         skipped_history = 0
 
         for prob in trending:
+            if not prob.is_valid_name():
+                logger.debug("Dropping invalid problem name: %r", prob.name)
+                continue
+
             norm = normalize_name(prob.name)
 
             if prob.slug in history_slugs or norm in history_slugs:
@@ -125,17 +142,18 @@ class ProblemGenerator:
                 continue
 
             is_duplicate = False
+            # Category-agnostic fuzzy match: sources often tag the same problem
+            # under different categories (e.g. Ride Sharing as HLD vs LLD).
             for ex_name, ex_prob in existing_normalized_names.items():
-                if ex_prob.category == prob.category:
-                    ratio = similarity_ratio(norm, ex_name)
-                    if ratio >= self.similarity_threshold:
-                        logger.debug(
-                            "Fuzzy match: '%s' ≈ '%s' (%.2f) — skipping",
-                            prob.name, ex_prob.name, ratio,
-                        )
-                        skipped_fuzzy += 1
-                        is_duplicate = True
-                        break
+                ratio = similarity_ratio(norm, ex_name)
+                if ratio >= self.similarity_threshold:
+                    logger.debug(
+                        "Fuzzy match: '%s' ≈ '%s' (%.2f) — skipping",
+                        prob.name, ex_prob.name, ratio,
+                    )
+                    skipped_fuzzy += 1
+                    is_duplicate = True
+                    break
 
             if not is_duplicate:
                 missing.append(prob)
@@ -177,9 +195,14 @@ class ProblemGenerator:
             logger.warning("Unknown category: %s", prob.category)
             return None
 
-        relative = CATEGORY_DEFAULT_SUBPATH.get(prob.category, paths[0])
+        default = CATEGORY_DEFAULT_SUBPATH.get(prob.category, paths[0])
+        # Route to the subfolder matching the repo's existing organization
+        relative = route_subfolder(prob.category.value, prob.name.lower(), default)
         dir_path = self.repo_path / relative / prob.slug
         dir_path.mkdir(parents=True, exist_ok=True)
+
+        # Normalize display name once for both content and README metadata
+        prob.name = self.display_name(prob.name)
 
         # Generate content based on category
         if prob.category == Category.HLD:
@@ -209,6 +232,55 @@ class ProblemGenerator:
     # ------------------------------------------------------------------ #
     #  Content generators
     # ------------------------------------------------------------------ #
+    _SMALL_WORDS = {
+        "a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on",
+        "or", "the", "to", "vs", "via", "with", "from", "into", "over",
+    }
+
+    def display_name(self, name: str) -> str:
+        """Normalize a problem name for display: consistent Title Case with
+        small words lowercased (except at the start), acronym/known-term
+        preservation, and cleanup of stray punctuation."""
+        name = re.sub(r"\s+", " ", str(name)).strip(" -–—\t")
+        words = name.split()
+        out = []
+        for i, word in enumerate(words):
+            lower = word.lower()
+            # Preserve known acronyms / tech terms
+            special = {
+                "llm": "LLM", "rag": "RAG", "api": "API", "sql": "SQL",
+                "nosql": "NoSQL", "aws": "AWS", "gcp": "GCP", "rpc": "RPC",
+                "grpc": "gRPC", "graphql": "GraphQL", "io": "I/O",
+                "ui": "UI", "cdn": "CDN", "dns": "DNS", "mqtt": "MQTT",
+                "ci/cd": "CI/CD", "crud": "CRUD", "db": "DB", "url": "URL",
+                "uri": "URI", "http": "HTTP", "tcp": "TCP", "udp": "UDP",
+                "oauth": "OAuth", "jwt": "JWT", "kafka": "Kafka",
+                "tiktok": "TikTok", "youtube": "YouTube", "whatsapp": "WhatsApp",
+                "instagram": "Instagram", "linkedin": "LinkedIn",
+                "lru": "LRU", "lfu": "LFU", "hld": "HLD", "lld": "LLD",
+                "ssr": "SSR", "sla": "SLA", "cpu": "CPU", "gpu": "GPU",
+                "ram": "RAM", "sdk": "SDK", "qa": "QA", "otp": "OTP",
+            }
+            if lower in special:
+                out.append(special[lower])
+            elif lower in self._SMALL_WORDS and i > 0:
+                out.append(lower)
+            elif "-" in word:
+                # Title-case each hyphen-separated part, preserving specials
+                parts = []
+                for p in word.split("-"):
+                    pl = p.lower()
+                    if pl in special:
+                        parts.append(special[pl])
+                    elif pl in self._SMALL_WORDS and i > 0:
+                        parts.append(pl)
+                    else:
+                        parts.append(p.capitalize())
+                out.append("-".join(parts))
+            else:
+                out.append(word.capitalize())
+        return " ".join(out)
+
     def _get_template_override(self, prob: TrendingProblem) -> dict:
         """Check if there's a problem-specific template override."""
         name_lower = prob.name.lower()
@@ -364,13 +436,24 @@ class ProblemGenerator:
         lines = content.split("\n")
         changes = 0
 
+        existing_dirs = {prob.slug: prob.path for prob in self.list_existing_problems()}
         for prob in problems:
             if prob.name.lower() in content.lower():
                 logger.debug("README already contains %s, skipping", prob.name)
                 continue
 
+            # Link to wherever the problem actually lives (falls back to the
+            # default subpath for problems that were just generated)
+            prob_path = existing_dirs.get(prob.slug)
+            if prob_path:
+                link = str(Path(prob_path).relative_to(self.repo_path)).replace("\\", "/")
+            else:
+                # Problem was just generated — link to its default subpath
+                link = CATEGORY_DEFAULT_SUBPATH.get(prob.category, "").rstrip("/")
+                link = f"{link}/{prob.slug}" if link else prob.slug
+
             concepts = ", ".join(prob.key_concepts) if prob.key_concepts else "Trending topic"
-            entry = f"| [{prob.name}]({prob.category.value}/problems/{prob.slug}/) | {concepts} |"
+            entry = f"| [{prob.name}]({link}/) | {concepts} |"
 
             insert_idx = self._find_readme_insertion_point(lines, prob.category)
             if insert_idx is not None:
@@ -395,18 +478,32 @@ class ProblemGenerator:
         }
 
         patterns = section_patterns.get(category, [])
-        last_table_row = None
+
+        def _is_table_row(line: str) -> bool:
+            return line.lstrip().startswith("|")
+
+        def _is_separator_row(line: str) -> bool:
+            # Markdown table separator like |----|-----|
+            stripped = line.strip()
+            return stripped.startswith("|") and set(stripped.replace("|", "")).issubset({"-", ":", " "})
 
         for i, line in enumerate(lines):
-            in_section = any(pattern in line for pattern in patterns)
-            if in_section:
-                for j in range(i + 1, len(lines)):
-                    if lines[j].startswith("|"):
-                        last_table_row = j
-                    elif last_table_row is not None and lines[j].strip() and not lines[j].startswith("|"):
-                        return last_table_row + 1
-
-        if last_table_row is not None:
-            return last_table_row + 1
+            if not any(pattern in line for pattern in patterns):
+                continue
+            # Find the table header row that directly follows the section heading,
+            # then append entries after the LAST contiguous table row.
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j >= len(lines) or not _is_table_row(lines[j]):
+                continue
+            if j + 1 >= len(lines) or not _is_separator_row(lines[j + 1]):
+                continue  # not a well-formed table — safer to skip than corrupt
+            end = j + 1
+            k = end + 1
+            while k < len(lines) and _is_table_row(lines[k]):
+                end = k
+                k += 1
+            return end + 1
 
         return None

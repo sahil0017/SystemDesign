@@ -1,6 +1,67 @@
-"""Fuzzy matching utilities for problem name comparison."""
+"""Fuzzy matching utilities for problem name comparison and subfolder routing."""
 
 import re
+
+# Keyword hints for routing LLD problems into the correct difficulty/concurrency
+# subfolder, matching the repo's existing organization (see lld/problems/*).
+LLD_CONCURRENCY_HINTS = [
+    "thread", "concurrent", "concurren", "lock", "semaphore", "barrier",
+    "latch", "phaser", "executor", "queue", "pool", "deadlock", "race",
+    "atomic", "synchroniz", "producer", "consumer", "countdown", "mutex",
+    "blocking", "cyclic", "read-write", "cache with ttl", "rate limit",
+]
+
+LLD_EASY_HINTS = [
+    "tic-tac-toe", "tic tac toe", "snake", "lru", "lfu", "parking lot",
+    "vending machine", "insert delete", "shuffle", "min stack", "unix",
+]
+
+LLD_MEDIUM_HINTS = [
+    "atm", "elevator", "hotel", "library", "restaurant", "coffee", "traffic",
+    "taxi", "movie", "concert", "car rental", "task", "logging", "logger",
+    "notification", "wallet", "expense", "split", "airline", "inventory",
+    "stack overflow", "pubsub", "pub-sub", "social", "editor", "calendar",
+    "vending", "cache", "strategy", "board game", "auction", "linkedin",
+]
+
+# Distributed systems subfolder routing (mirrors distributed-systems/problems/*)
+DS_SUBFOLDER_HINTS = [
+    ("coordination", ["lock", "leader", "election", "consensus", "hashing", "raft", "paxos", "zookeeper"]),
+    ("data-management", ["cache", "config", "session", "vector", "feature", "store", "database", "kv", "storage"]),
+    ("messaging-events", ["event", "cqrs", "sourcing", "message", "stream", "kafka", "queue", "outbox", "inbox"]),
+    ("resilience", ["breaker", "rate limit", "ratelimit", "throttle", "retry", "bulkhead", "timeout", "fallback"]),
+    ("observability", ["tracing", "metric", "monitor", "log aggregation", "alert", "telemetry"]),
+    ("infrastructure", ["id generat", "uuid", "snowflake", "search", "file", "blob", "secret", "vault", "dns"]),
+    ("scheduling", ["scheduler", "cron", "workflow", "dag", "job", "task queue", "batch"]),
+]
+
+
+def route_lld_subfolder(name_lower: str) -> str:
+    """Pick the LLD subfolder matching the repo's difficulty organization."""
+    if any(h in name_lower for h in LLD_CONCURRENCY_HINTS):
+        return "lld/problems/concurrency"
+    if any(h in name_lower for h in LLD_EASY_HINTS):
+        return "lld/problems/easy"
+    if any(h in name_lower for h in LLD_MEDIUM_HINTS):
+        return "lld/problems/medium"
+    return "lld/problems/hard"
+
+
+def route_ds_subfolder(name_lower: str) -> str:
+    """Pick the distributed-systems subfolder matching the repo's categories."""
+    for subfolder, hints in DS_SUBFOLDER_HINTS:
+        if any(h in name_lower for h in hints):
+            return f"distributed-systems/problems/{subfolder}"
+    return "distributed-systems/problems/data-management"
+
+
+def route_subfolder(category_value: str, name_lower: str, default: str) -> str:
+    """Route a problem to the right subfolder based on category and name."""
+    if category_value == "lld":
+        return route_lld_subfolder(name_lower)
+    if category_value == "distributed-systems":
+        return route_ds_subfolder(name_lower)
+    return default
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:

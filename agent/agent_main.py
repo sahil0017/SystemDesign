@@ -124,6 +124,28 @@ class SystemDesignAgent:
 # ------------------------------------------------------------------ #
 #  CLI
 # ------------------------------------------------------------------ #
+def load_run_history(path: Path) -> RunHistory:
+    """Load run history from disk, tolerating corrupt/missing files."""
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            return RunHistory.from_dict(data)
+        except Exception as exc:
+            logger.warning("Failed to load run history: %s", exc)
+    return RunHistory()
+
+
+def save_run_history(history: RunHistory, path: Path) -> None:
+    """Persist run history so future runs can skip already-added problems."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        history.last_run = datetime.now(timezone.utc).isoformat()
+        path.write_text(json.dumps(history.to_dict(), indent=2))
+        logger.info("Run history saved: %d slugs tracked", len(history.added_slugs))
+    except Exception as exc:
+        logger.error("Failed to save run history: %s", exc)
+
+
 async def main() -> None:
     """CLI entry point for GitHub Actions (one-shot run)."""
     agent = SystemDesignAgent()
@@ -135,15 +157,14 @@ async def main() -> None:
 
     # Load run history
     history_path = Path(settings.RUN_HISTORY_FILE)
-    history = RunHistory()
-    if history_path.exists():
-        try:
-            data = json.loads(history_path.read_text())
-            history = RunHistory.from_dict(data)
-        except Exception:
-            pass
+    history = load_run_history(history_path)
 
-    await agent.run(history)
+    added = await agent.run(history)
+
+    # Persist newly added problems so subsequent runs don't duplicate PRs
+    if added:
+        history.added_slugs.update(prob.slug for prob in added)
+        save_run_history(history, history_path)
 
 
 if __name__ == "__main__":

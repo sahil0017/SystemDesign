@@ -38,13 +38,20 @@ class Settings:
     SCRAPER_RETRY_BACKOFF: float = float(os.environ.get("SCRAPER_RETRY_BACKOFF", "2.0"))
 
     # Sources to scrape
-    SCRAPER_SOURCES: list = os.environ.get("SCRAPER_SOURCES", "").split(",") or [
+    DEFAULT_SCRAPER_SOURCES = [
         "algomaster",
         "hellointerview",
         "designgurus",
         "educative",
         "github_trending",
+        "bytebytego",
+        "system-design-primer",
+        "system-design-interview",
+        "awesome-system-design",
     ]
+    SCRAPER_SOURCES: list = [
+        s.strip() for s in os.environ.get("SCRAPER_SOURCES", "").split(",") if s.strip()
+    ] or list(DEFAULT_SCRAPER_SOURCES)
 
     # Cache
     CACHE_DIR: str = os.environ.get("CACHE_DIR", "/tmp/agent-cache")

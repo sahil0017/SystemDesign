@@ -65,6 +65,9 @@ class TrendScraper:
                 logger.error("Scraper task failed: %s", result)
                 continue
             for prob in result:
+                if not prob.is_valid_name():
+                    logger.debug("Dropping invalid problem name: %r", prob.name)
+                    continue
                 key = (prob.category.value, prob.slug)
                 if key not in all_problems:
                     all_problems[key] = prob
@@ -98,6 +101,8 @@ class TrendScraper:
 
                 if source_info["type"] == "github":
                     problems = self._parse_github_trending(html_text, source_name)
+                elif source_info["type"] == "markdown":
+                    problems = self._parse_markdown(html_text, source_name)
                 else:
                     problems = self._parse_html_generic(html_text, source_name)
 
@@ -169,10 +174,11 @@ class TrendScraper:
         seen_names: set = set()
 
         for keyword, (category, aliases) in PROBLEM_KEYWORDS.items():
-            # Check if any alias appears in the HTML
+            # Check if any alias appears in the HTML (word-boundary match so
+            # e.g. "cash" doesn't match inside "Cache Cluster" mentions oddly)
             matched = False
             for alias in aliases:
-                if alias.lower() in html_lower:
+                if re.search(r"\b" + re.escape(alias.lower()) + r"\b", html_lower):
                     matched = True
                     break
 
@@ -188,16 +194,25 @@ class TrendScraper:
                         url=SOURCES[source]["urls"][0] if isinstance(SOURCES[source]["urls"], list) else SOURCES[source]["urls"],
                     ))
 
-        # Also extract "Design X" patterns for new HLD problems
+        # Also extract "Design X" patterns for new HLD problems.
+        # Require the phrase to start on a heading/anchor/link boundary and use
+        # title-case words so we don't match mid-sentence prose fragments.
         for match in re.finditer(
-            r"(?:design|build|implement)\s+([A-Z][A-Za-z\s]{3,40}(?:system|service|platform|engine))",
+            r"(?:design|build|implement)\s+((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*"
+            r"(?:System|Service|Platform|Engine))",
             html_text,
-            re.IGNORECASE,
         ):
             name = match.group(1).strip()
-            # Clean up common suffixes
+            # Drop the generic suffix ("Chat System" -> "Chat")
             name = re.sub(r"\s+(system|service|platform|engine)\s*$", "", name, flags=re.IGNORECASE).strip()
-            if name and len(name) > 3 and name not in seen_names:
+            # Reject fragments: must have at least 2 chars, contain no lowercase-
+            # leading junk, and look like a proper noun phrase (no stopwords)
+            stopwords = {"a", "an", "the", "and", "or", "of", "to", "for", "your", "their", "is", "are", "in", "on", "that", "this", "my", "our", "with", "how", "what"}
+            words = name.lower().split()
+            if (not name or len(name) < 3 or len(words) > 4 or
+                    any(w in stopwords for w in words)):
+                continue
+            if name not in seen_names:
                 seen_names.add(name)
                 problems.append(TrendingProblem(
                     name=name,
@@ -205,6 +220,50 @@ class TrendScraper:
                     source=source,
                     url=SOURCES[source]["urls"][0] if isinstance(SOURCES[source]["urls"], list) else SOURCES[source]["urls"],
                 ))
+
+        return problems
+
+    def _parse_markdown(self, md_text: str, source: str) -> list:
+        """Parse a Markdown resource list (awesome-lists, system-design primers).
+
+        Extracts linked titles and headings; these pages are curated lists of
+        design problems, so titles are higher quality than HTML keyword matches.
+        """
+        problems = []
+        seen_names: set = set()
+        keywords_lower = {kw.lower(): (kw, cat, aliases) for kw, (cat, aliases) in PROBLEM_KEYWORDS.items()}
+
+        for match in re.finditer(r"[#*\-`>\s]\[([^\]]{3,60})\]\(", md_text):
+            title = match.group(1).strip()
+            # Skip junk links (images, anchors, non-problem pages)
+            if any(ch in title for ch in "|:<") or title.lower().startswith("http"):
+                continue
+
+            t_lower = title.lower()
+            matched_keyword = None
+            for kw, (canonical, cat, aliases) in keywords_lower.items():
+                if re.search(r"\b" + re.escape(kw) + r"\b", t_lower):
+                    matched_keyword = (canonical, cat)
+                    break
+
+            if matched_keyword:
+                canonical, cat = matched_keyword
+                if canonical not in seen_names:
+                    seen_names.add(canonical)
+                    problems.append(TrendingProblem(
+                        name=canonical,
+                        category=cat,
+                        source=source,
+                        url=SOURCES[source]["urls"][0] if isinstance(SOURCES[source]["urls"], list) else SOURCES[source]["urls"],
+                    ))
+            else:
+                # Try to salvage a problem name from the title itself
+                cleaned = re.sub(r"\s+(system|design|interview)\s*$", "", title, flags=re.IGNORECASE).strip()
+                candidate = TrendingProblem(name=cleaned, category=Category.HLD, source=source,
+                                            url=SOURCES[source]["urls"][0] if isinstance(SOURCES[source]["urls"], list) else SOURCES[source]["urls"])
+                if candidate.is_valid_name() and cleaned not in seen_names:
+                    seen_names.add(cleaned)
+                    problems.append(candidate)
 
         return problems
 

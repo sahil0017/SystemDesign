@@ -103,16 +103,38 @@ class GitHubClient:
         branch = self._generate_branch_name()
         logger.info("Creating PR on branch: %s", branch)
 
-        await self._run_git("fetch", "origin", "main")
-        await self._run_git("checkout", "main")
-        await self._run_git("reset", "--hard", "origin/main")
-        await self._run_git("clean", "-fd")
+        # Fetch latest main into a temp ref without touching the working tree
+        await self._run_git("fetch", "origin", "main:refs/remotes/origin/main")
 
-        result = await self._run_git("checkout", "-b", branch)
+        # Build the branch from origin/main WITHOUT resetting/cleaning the
+        # local working tree — this preserves any local (uncommitted) changes.
+        result = await self._run_git("worktree", "add", "-b", branch,
+                                     str(self.repo_path.parent / (self.repo_path.name + "-agent-pr")),
+                                     "origin/main")
         if result.returncode != 0:
-            logger.error("Failed to create branch %s: %s", branch, result.stderr[:200])
+            logger.error("Failed to create worktree branch %s: %s", branch, result.stderr[:200])
+            await self._run_git("worktree", "prune")
             return ""
 
+        # Point subsequent git operations at the worktree
+        original_repo_path = self.repo_path
+        self.repo_path = self.repo_path.parent / (self.repo_path.name + "-agent-pr")
+
+        try:
+            pr_url = await self._commit_and_push(branch, problems)
+        finally:
+            self.repo_path = original_repo_path
+            await self._run_git("worktree", "remove", "--force",
+                                str(self.repo_path.parent / (self.repo_path.name + "-agent-pr")))
+            await self._run_git("worktree", "prune")
+
+        if not pr_url:
+            return ""
+
+        return await self._create_pull_request(branch, problems)
+
+    async def _commit_and_push(self, branch: str, problems: list) -> str:
+        """Stage, commit, and push changes in the isolated worktree."""
         await self._run_git("add", "-A")
 
         status = await self._run_git("status", "--porcelain")
@@ -134,8 +156,7 @@ class GitHubClient:
             logger.error("Failed to push branch %s: %s", branch, result.stderr[:200])
             return ""
 
-        pr_url = await self._create_pull_request(branch, problems)
-        return pr_url
+        return "ok"
 
     async def _create_pull_request(self, branch: str, problems: list) -> str:
         """Create a pull request via gh CLI."""

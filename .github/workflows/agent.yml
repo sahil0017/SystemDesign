@@ -2,8 +2,9 @@ name: SystemDesign Agent
 
 on:
   schedule:
-    # Run every 12 hours (midnight and noon UTC)
-    - cron: "0 0,12 * * *"
+    # Run at 04:07 and 16:07 UTC (offset from the hour — GitHub crons on the
+    # hour face heavy contention and are often delayed 15-30+ min)
+    - cron: "7 4,16 * * *"
   workflow_dispatch:
     # Allow manual triggers for testing
   push:
@@ -18,6 +19,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+# Concurrency guard: a scheduled run is skipped (superseded) if a newer run
+# starts, preventing overlapping agent executions and PR stampedes.
+concurrency:
+  group: agent-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # ------------------------------------------------------------------ #
@@ -97,7 +104,36 @@ jobs:
       - name: Authenticate GitHub CLI
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
 
+      - name: Download previous run history
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: run-history
+          path: ${{ runner.temp }}/
+
+      - name: Make git operations non-destructive
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Guard - skip if an agent PR is already open
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh pr list --repo ${GITHUB_REPOSITORY} --state open \
+            --search "in:title auto-generated" \
+            --json number --jq 'length' 2>/dev/null || echo 0)
+          BRANCHED=$(gh api "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+            --jq '[.[] | select(.name | startswith("agent/add-problems"))] | length' 2>/dev/null || echo 0)
+          echo "open-agent-prs=$COUNT agent-branches=$BRANCHED"
+          if [ "$COUNT" != "0" ] || [ "${BRANCHED:-0}" != "0" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run agent
+        if: steps.guard.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_PATH: ${{ github.workspace }}
@@ -105,16 +141,14 @@ jobs:
           CACHE_DIR: ${{ runner.temp }}/agent-cache
           LOG_LEVEL: INFO
         run: |
-          cd agent
           python -m agent.agent_main
 
-      - name: Download previous run history
-        if: always()
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: run-history
-          path: ${{ runner.temp }}/
+      - name: Deploy Streamlit dashboard to GitHub Pages host
+        # Streamlit can't run on static GitHub Pages; this writes a deploy
+        # marker consumed by the separate dashboard workflow (Streamlit Cloud
+        # auto-syncs the repo, so a push is the deployment trigger).
+        if: steps.guard.outputs.skip == 'true'
+        run: echo "Agent run skipped (open PR already exists). Dashboard syncs via Streamlit Community Cloud on next merge to main."
 
       - name: Upload run history artifact
         if: always()

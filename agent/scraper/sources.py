@@ -16,13 +16,13 @@ SOURCES = {
     },
     "hellointerview": {
         "urls": [
-            "https://www.hellointerview.com/courses/system-design",
+            "https://www.hellointerview.com/learn/system-design",
         ],
         "type": "html",
     },
     "designgurus": {
         "urls": [
-            "https://www.designgurus.io/edutitles/system-design-master-class",
+            "https://designgurus.io/course/grokking-the-system-design-interview",
         ],
         "type": "html",
     },
@@ -37,6 +37,31 @@ SOURCES = {
             "https://github.com/trending?since=monthly",
         ],
         "type": "github",
+    },
+    "bytebytego": {
+        "urls": [
+            "https://bytebytego.com/",
+        ],
+        "type": "html",
+    },
+    "system-design-primer": {
+        "urls": [
+            "https://raw.githubusercontent.com/donnemartin/system-design-primer/master/README.md",
+        ],
+        "type": "markdown",
+    },
+    "system-design-interview": {
+        "urls": [
+            "https://raw.githubusercontent.com/checkcheckzz/system-design-interview/master/README.md",
+        ],
+        "type": "markdown",
+    },
+    "awesome-system-design": {
+        "urls": [
+            "https://raw.githubusercontent.com/ashishps1/awesome-system-design-resources/main/README.md",
+            "https://raw.githubusercontent.com/ashishps1/awesome-low-level-design/main/README.md",
+        ],
+        "type": "markdown",
     },
 }
 
