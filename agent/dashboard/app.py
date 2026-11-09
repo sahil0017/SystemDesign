@@ -557,12 +557,12 @@ def render_home(ins: dict, ledger: pd.DataFrame):
         st.caption(f"🔄 Last agent activity: `{last_run}`")
 
     mini_stat_row([
-        ("🌐 HLD", len(ins["by_category"].get("System Design (HLD)", []))),
-        ("🧱 LLD", len(ins["by_category"].get("Object-Oriented Design (LLD)", []))),
-        ("🗄️ DB Design", len(ins["by_category"].get("Database Design", []))),
-        ("⚡ Distributed", len(ins["by_category"].get("Distributed Systems", []))),
-        ("🔌 API", len(ins["by_category"].get("API Design", []))),
-        ("⚖️ Trade-offs", len(ins["by_category"].get("Trade-offs Analysis", []))),
+        ("🌐 HLD", ins["by_category"].get("System Design (HLD)", 0)),
+        ("🧱 LLD", ins["by_category"].get("Object-Oriented Design (LLD)", 0)),
+        ("🗄️ DB Design", ins["by_category"].get("Database Design", 0)),
+        ("⚡ Distributed", ins["by_category"].get("Distributed Systems", 0)),
+        ("🔌 API", ins["by_category"].get("API Design", 0)),
+        ("⚖️ Trade-offs", ins["by_category"].get("Trade-offs Analysis", 0)),
     ])
 
     if ins["agent_added"]:
