@@ -203,6 +203,32 @@ class Problem:
     added_by_agent: bool = False
     added_on: str = ""
 
+    def as_dict(self) -> dict:
+        """Plain-dict form (picklable for st.cache_data)."""
+        return {
+            "name": self.name,
+            "category": self.category,
+            "category_key": self.category_key,
+            "difficulty": self.difficulty,
+            "readme_path": self.readme_path,
+            "slug": self.slug,
+            "added_by_agent": self.added_by_agent,
+            "added_on": self.added_on,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Problem":
+        return cls(**{k: d.get(k, v.default) if hasattr(v, "default") else d.get(k)
+                      for k, v in cls.__dataclass_fields__.items()})
+
+
+def _problems_to_dicts(problems: dict) -> dict:
+    return {k: [p.as_dict() for p in v] for k, v in problems.items()}
+
+
+def _dicts_to_problems(dicts: dict) -> dict:
+    return {k: [Problem.from_dict(d) for d in v] for k, v in dicts.items()}
+
 
 # ------------------------------------------------------------------ #
 #  Resilient loaders (all cached, all failure-tolerant)
@@ -213,8 +239,8 @@ def _pretty(name: str) -> str:
 
 
 @st.cache_data(ttl=120, show_spinner="Scanning repository…")
-def discover_problems(repo_root_str: str) -> dict:
-    """Scan the repository and return problems grouped by category key. Never raises."""
+def _discover_problems_impl(repo_root_str: str) -> dict:
+    """Scan the repository; returns plain-dict problems grouped by category key. Never raises."""
     root = Path(repo_root_str)
     problems: dict = {}
 
@@ -279,7 +305,18 @@ def discover_problems(repo_root_str: str) -> dict:
             difficulty = str(rel.parent) if rel.parent != Path(".") else None
             _add("java", f.parent, "Java Concurrency & Advanced", difficulty or None)
 
-    return problems
+    return _problems_to_dicts(problems)
+
+
+@st.cache_data(ttl=120, show_spinner="Scanning repository…")
+def discover_problems_raw(repo_root_str: str) -> dict:
+    """Cached, picklable problem discovery (plain dicts, not dataclasses)."""
+    return _discover_problems_impl(repo_root_str)
+
+
+def discover_problems(repo_root_str: str) -> dict:
+    """Public API: problems as Problem objects, rebuilt cheaply from cached dicts."""
+    return _dicts_to_problems(discover_problems_raw(repo_root_str))
 
 
 @st.cache_data(ttl=120, show_spinner="Inventorying wiki content…")
@@ -794,7 +831,7 @@ def main():
         page = st.radio("Navigate", NAV_PAGES, index=0, label_visibility="collapsed")
         st.divider()
         if st.button("🔄 Refresh data", use_container_width=True):
-            discover_problems.clear()
+            discover_problems_raw.clear()
             load_ledger.clear()
             load_run_log.clear()
             load_pr_history.clear()
