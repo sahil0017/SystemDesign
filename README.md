@@ -127,6 +127,8 @@ Organized by difficulty level and a dedicated concurrency category. Each problem
 | [Text Editor](lld/problems/medium/text-editor/) | Gap buffer, command pattern, undo/redo, OT/CRDT |
 | [Movie Ticket Booking](lld/problems/medium/movie-ticket-booking/) | Seat selection, show scheduling, seat locking, payment |
 | [Cricinfo Scorecard](lld/problems/medium/cricinfo-scorecard/) | Event sourcing, WebSocket, real-time stats, CQRS |
+| [Chess Game](lld/problems/medium/chess-game/) | Trending topic |
+| [Pub Sub](lld/problems/medium/pub-sub/) | Trending topic |
 
 #### Hard (13)
 | Problem | Key Concepts |
