@@ -119,15 +119,28 @@ div[role="radiogroup"] label:hover p {{ color: {ACCENT}; }}
 section[data-testid="stSidebar"] > div {{ background: {BG}; }}
 section[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
 
+/* nav options laid out as a compact 2-col grid (no wasted whitespace) */
+section[data-testid="stSidebar"] div[role="radiogroup"] {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}}
 /* each radio option becomes a selectable card */
 section[data-testid="stSidebar"] div[role="radiogroup"] label {{
     background: {SURFACE};
     border: 1px solid #1d2b20;
     border-radius: 10px;
-    padding: 8px 12px;
-    margin-bottom: 6px;
+    padding: 8px 6px;
+    margin-bottom: 0;
     transition: all .15s ease;
     cursor: pointer;
+    text-align: center;
+    justify-content: center;
+    flex-direction: row;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label p {{
+    font-size: .82rem;
+    white-space: nowrap;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
     border-color: {ACCENT};
@@ -142,6 +155,8 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     border-color: {ACCENT};
     box-shadow: 0 0 12px rgba(34,197,94,.25);
 }}
+/* quick-action buttons join the same grid feel */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {{ gap: 6px; }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
     color: {ACCENT} !important; font-weight: 700;
 }}
