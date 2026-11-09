@@ -36,7 +36,7 @@ async def run_once() -> None:
     for attempt in range(max_retries):
         try:
             agent = SystemDesignAgent()
-            result = await agent.run(history)
+            result, pr_url = await agent.run(history)
 
             if result:
                 for prob in result:

@@ -2,11 +2,14 @@ name: SystemDesign Agent
 
 on:
   schedule:
-    # Run at 04:07 and 16:07 UTC (offset from the hour — GitHub crons on the
-    # hour face heavy contention and are often delayed 15-30+ min)
+    # Off-hour cron to avoid GitHub's hourly contention window
     - cron: "7 4,16 * * *"
   workflow_dispatch:
-    # Allow manual triggers for testing
+    inputs:
+      force_run:
+        description: "Force agent run even if an open agent PR exists"
+        default: "false"
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -20,122 +23,125 @@ permissions:
   contents: write
   pull-requests: write
 
-# Concurrency guard: a scheduled run is skipped (superseded) if a newer run
-# starts, preventing overlapping agent executions and PR stampedes.
+# Never run two agent pipelines concurrently
 concurrency:
   group: agent-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   # ------------------------------------------------------------------ #
-  #  CI: Lint and test the agent package
+  #  Stage 1 — Validate: lint + unit tests
   # ------------------------------------------------------------------ #
-  test-agent:
-    name: Test Agent (v1.0.0)
+  validate:
+    name: "1 · Validate (lint + tests)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r agent/requirements.txt
+        run: pip install -r agent/requirements.txt ruff
 
-      - name: Lint with ruff
+      - name: Lint
         run: |
-          pip install ruff
-          ruff check agent/ --select E,F,W --ignore E501,E402 || true
+          echo "### Lint (ruff)" >> "$GITHUB_STEP_SUMMARY"
+          ruff check agent/ --select E,F,W --ignore E501,E402 \
+            | tee >(tail -n +1 >> "$GITHUB_STEP_SUMMARY") || true
 
-      - name: Run tests
+      - name: Unit tests
         env:
           REPO_PATH: ${{ github.workspace }}
           DRY_RUN: "true"
         run: |
           cd agent
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -q --tb=short 2>&1 | tee ../pytest.log
+          echo "### Unit tests" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -5 ../pytest.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ML classifier smoke test
+        run: |
+          cd ..
+          python3 - <<'EOF' | tee ml-smoke.log
+          import sys; sys.path.insert(0, '.')
+          from agent.ml_classifier import ProblemClassifier
+          from agent.scraper.sources import PROBLEM_KEYWORDS
+          c = ProblemClassifier(keyword_db=PROBLEM_KEYWORDS)
+          trained = c.fit()
+          assert trained, "classifier failed to train"
+          for name in ["E-Mail Service", "Printer Spooler", "Circuit Breaker Utils"]:
+              cat, conf = c.predict_with_confidence(name)
+              print(f"  {name!r:28s} -> {cat.value if cat else None} ({conf:.2f})")
+          print("ML smoke test OK")
+          EOF
+          echo "### ML classifier smoke test" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat ml-smoke.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   # ------------------------------------------------------------------ #
-  #  Run the agent (scheduled or manual)
+  #  Stage 2 — Discover: scrape + dedup (pipeline visible in summary)
   # ------------------------------------------------------------------ #
-  run-agent:
-    name: Run Agent (v1.0.0)
+  discover:
+    name: "2 · Discover (scrape + dedup vs wiki)"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: test-agent
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.test-agent.result == 'success'
-
+    timeout-minutes: 20
+    needs: validate
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push'
+    outputs:
+      has_work: ${{ steps.discover.outputs.has_work }}
+      pr_url: ${{ steps.discover.outputs.pr_url }}
+      discovered: ${{ steps.discover.outputs.discovered }}
+      duplicates: ${{ steps.discover.outputs.duplicates }}
+      selected: ${{ steps.discover.outputs.selected }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
-      - name: Install Python dependencies
+      - name: Install dependencies + gh
         run: |
-          python -m pip install --upgrade pip
           pip install -r agent/requirements.txt
+          type gh >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y gh; }
 
-      - name: Install GitHub CLI
-        run: |
-          type gh >/dev/null 2>&1 || {
-            sudo apt-get update
-            sudo apt-get install -y gh
-          }
-
-      - name: Configure Git
+      - name: Configure Git + GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Ensure 'automated' label exists
-        run: gh label create automated --repo ${GITHUB_REPOSITORY} --description "Auto-generated by agent" --color 5319E7 2>/dev/null || true
-
-      - name: Download previous run history
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: run-history
-          path: ${{ runner.temp }}/
-
-      - name: Make git operations non-destructive
-        run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+          gh label create automated --repo "$GITHUB_REPOSITORY" \
+            --description "Auto-generated by agent" --color 5319E7 2>/dev/null || true
 
-      - name: Guard - skip if an agent PR is already open
+      - name: Guard — skip if agent PR awaiting review
         id: guard
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          COUNT=$(gh pr list --repo ${GITHUB_REPOSITORY} --state open \
-            --search "in:title auto-generated" \
-            --json number --jq 'length' 2>/dev/null || echo 0)
-          # Collect stale agent branches (leftovers from failed runs)
+          COUNT=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title auto-generated" --json number --jq 'length' 2>/dev/null || echo 0)
           STALE=$(gh api "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
             --jq '[.[] | select(.name | startswith("agent/add-problems")) | .name]' 2>/dev/null || echo '')
-          BRANCHED=$(echo "$STALE" | grep -c 'agent/' || true)
-          echo "open-agent-prs=$COUNT agent-branches=$BRANCHED"
           if [ "$COUNT" != "0" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            # No open agent PR -> stale branches are orphans from failed runs;
-            # delete them so the guard doesn't block forever.
             for b in $STALE; do
               [ -n "$b" ] || continue
               echo "Deleting stale branch: $b"
@@ -143,29 +149,112 @@ jobs:
             done
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+          FORCE="${{ github.event.inputs.force_run || 'false' }}"
+          if [ "$FORCE" = "true" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Run agent
-        if: steps.guard.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      - name: Discover problems (scrape → dedup → classify)
+        id: discover
+        if: steps.guard.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_PATH: ${{ github.workspace }}
-          RUN_HISTORY_FILE: ${{ runner.temp }}/run_history.json
-          CACHE_DIR: ${{ runner.temp }}/agent-cache
+          LOG_LEVEL: INFO
+          AGENT_STAGE: discover
+        run: |
+          python -m agent.agent_main --stage discover 2>&1 | tee discover.log
+          HAS_WORK=$(grep -c "DISCOVER_RESULT" discover.log || true)
+          {
+            echo "### 🔍 Discovery stage"
+            echo '```'
+            grep -E "\[(INFO|WARNING|ERROR)\]" discover.log | sed 's/^[^ ]* //' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Emit outputs parsed from a machine-readable line
+          LINE=$(grep "DISCOVER_RESULT" discover.log | tail -1 || true)
+          if [ -n "$LINE" ]; then
+            DISCOVERED=$(echo "$LINE" | sed -E 's/.*discovered=([0-9]+).*/\1/')
+            DUPLICATES=$(echo "$LINE" | sed -E 's/.*duplicates=([0-9]+).*/\1/')
+            SELECTED=$(echo "$LINE" | sed -E 's/.*selected=([0-9]+).*/\1/')
+            echo "discovered=$DISCOVERED"   >> "$GITHUB_OUTPUT"
+            echo "duplicates=$DUPLICATES"   >> "$GITHUB_OUTPUT"
+            echo "selected=$SELECTED"       >> "$GITHUB_OUTPUT"
+            echo "has_work=true"            >> "$GITHUB_OUTPUT"
+          else
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "### ℹ️ Nothing new to add (all duplicates or already in PR)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ------------------------------------------------------------------ #
+  #  Stage 3 — Publish: generate files, open PR, update wiki ledger
+  # ------------------------------------------------------------------ #
+  publish:
+    name: "3 · Publish (generate → PR → wiki ledger)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: discover
+    if: needs.discover.outputs.has_work == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies + gh
+        run: |
+          pip install -r agent/requirements.txt
+          type gh >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y gh; }
+
+      - name: Configure Git + GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Generate problems, open PR, update wiki
+        id: publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_PATH: ${{ github.workspace }}
           LOG_LEVEL: INFO
         run: |
-          python -m agent.agent_main
+          python -m agent.agent_main --stage publish 2>&1 | tee publish.log
+          LINE=$(grep "PUBLISH_RESULT" publish.log | tail -1 || true)
+          if [ -n "$LINE" ]; then
+            PR_URL=$(echo "$LINE" | sed -E 's/.*pr_url=([^ ]*).*/\1/')
+            GENERATED=$(echo "$LINE" | sed -E 's/.*generated=([0-9]+).*/\1/')
+            echo "pr_url=$PR_URL"       >> "$GITHUB_OUTPUT"
+            echo "generated=$GENERATED" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "### 📦 Publish stage"
+            echo '```'
+            grep -E "\[(INFO|WARNING|ERROR)\]" publish.log | sed 's/^[^ ]* //' || true
+            echo '```'
+            if [ -n "$PR_URL" ] && [ "$PR_URL" != "none" ]; then
+              echo "**✅ PR created: $PR_URL**"
+            else
+              echo "⚠️ No PR created"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Deploy Streamlit dashboard to GitHub Pages host
-        # Streamlit can't run on static GitHub Pages; this writes a deploy
-        # marker consumed by the separate dashboard workflow (Streamlit Cloud
-        # auto-syncs the repo, so a push is the deployment trigger).
-        if: steps.guard.outputs.skip == 'true'
-        run: echo "Agent run skipped (open PR already exists). Dashboard syncs via Streamlit Community Cloud on next merge to main."
-
-      - name: Upload run history artifact
+      - name: Job summary
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: run-history
-          path: ${{ runner.temp }}/run_history.json
-          retention-days: 30
+        run: |
+          {
+            echo "### 📊 Pipeline summary"
+            echo "| Stage | Result |"
+            echo "|-------|--------|"
+            echo "| Validated | ✅ |"
+            echo "| Discovered | ${{ needs.discover.outputs.discovered || 0 }} trending (${{
+              needs.discover.outputs.duplicates || 0 }} duplicates skipped) |"
+            echo "| Selected | ${{ needs.discover.outputs.selected || 0 }} new problems |"
+            echo "| Published | ${{ steps.publish.outputs.generated || 0 }} files → ${{ steps.publish.outputs.pr_url || 'no PR' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

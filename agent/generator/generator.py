@@ -12,6 +12,7 @@ from typing import Optional
 
 from agent.core.config import settings
 from agent.core.models import Category, ExistingProblem, GeneratedFile, TrendingProblem
+from agent.ml_classifier import ProblemClassifier
 from agent.generator.fuzzy import normalize_name, route_subfolder, similarity_ratio
 from agent.generator.templates import (
     PROBLEM_TEMPLATES, HLD_TEMPLATE, LLD_TEMPLATE, DS_TEMPLATE,
@@ -65,6 +66,9 @@ class ProblemGenerator:
     def __init__(self) -> None:
         self.repo_path = Path(settings.REPO_PATH)
         self.similarity_threshold = settings.AGENT_SIMILARITY_THRESHOLD
+        # ML classifier (TF-IDF + LogReg) for names not covered by the
+        # hardcoded keyword database; trained lazily on first use.
+        self._classifier = None
 
     # ------------------------------------------------------------------ #
     #  List existing problems
@@ -188,32 +192,50 @@ class ProblemGenerator:
 
         return generated
 
+    def _ml_category(self, prob: TrendingProblem) -> Optional[Category]:
+        """Ask the ML classifier for a category when keywords can't decide."""
+        if self._classifier is None:
+            self._classifier = ProblemClassifier()
+            self._classifier.fit()
+        ml_cat = self._classifier.predict_category(prob.name)
+        if ml_cat:
+            logger.info("ML classified %r as %s (keyword db had no match)", prob.name, ml_cat.value)
+        return ml_cat
+
     def _generate_one(self, prob: TrendingProblem) -> Optional[GeneratedFile]:
         """Generate a single problem README."""
-        paths = CATEGORY_PATHS.get(prob.category)
+        category = prob.category
+        paths = CATEGORY_PATHS.get(category)
         if not paths:
-            logger.warning("Unknown category: %s", prob.category)
-            return None
+            # Unknown category from the source — let the ML model decide
+            ml_cat = self._ml_category(prob)
+            if ml_cat and CATEGORY_PATHS.get(ml_cat):
+                category = ml_cat
+                prob.category = ml_cat
+                paths = CATEGORY_PATHS[ml_cat]
+            else:
+                logger.warning("Unknown category for %r: %s (ML fallback failed)", prob.name, prob.category)
+                return None
 
-        default = CATEGORY_DEFAULT_SUBPATH.get(prob.category, paths[0])
+        default = CATEGORY_DEFAULT_SUBPATH.get(category, paths[0])
         # Route to the subfolder matching the repo's existing organization
-        relative = route_subfolder(prob.category.value, prob.name.lower(), default)
+        relative = route_subfolder(category.value, prob.name.lower(), default)
         dir_path = self.repo_path / relative / prob.slug
         dir_path.mkdir(parents=True, exist_ok=True)
 
         # Normalize display name once for both content and README metadata
         prob.name = self.display_name(prob.name)
 
-        # Generate content based on category
-        if prob.category == Category.HLD:
+        # Generate content based on (possibly ML-corrected) category
+        if category == Category.HLD:
             content = self._generate_hld(prob)
-        elif prob.category == Category.LLD:
+        elif category == Category.LLD:
             content = self._generate_lld(prob)
-        elif prob.category == Category.TRADEOFFS:
+        elif category == Category.TRADEOFFS:
             content = self._generate_tradeoff(prob)
-        elif prob.category == Category.JAVA:
+        elif category == Category.JAVA:
             content = self._generate_java(prob)
-        elif prob.category == Category.DISTRIBUTED_SYSTEMS:
+        elif category == Category.DISTRIBUTED_SYSTEMS:
             content = self._generate_ds(prob)
         else:
             content = self._generate_generic(prob)
