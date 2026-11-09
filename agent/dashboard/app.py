@@ -3,7 +3,7 @@ Streamlit Dashboard for SystemDesign Repository — v3
 
 Green + black themed, mobile-first, dynamic and resilient dashboard for
 tracking system design problems, wikis, notes, the automation agent, and
-your staff-engineer progress.
+your learning progress.
 
 Resilience:
 - Cached loaders (st.cache_data with TTL) so the UI stays responsive
@@ -30,7 +30,7 @@ import streamlit as st
 # ------------------------------------------------------------------ #
 
 st.set_page_config(
-    page_title="SystemDesign — Staff Engineer Roadmap",
+    page_title="SystemDesign Dashboard",
     page_icon="🌿",
     layout="centered",  # centered reads better on phones than ultra-wide
     initial_sidebar_state="collapsed",
@@ -468,7 +468,7 @@ def compute_insights(problems: dict, ledger: pd.DataFrame, run_log: list, conten
     diffs = Counter(p.difficulty for p in flat if p.difficulty)
 
     # growth over time from ledger dates
-    timeline = []
+    timeline = pd.DataFrame(columns=["date", "added"])
     if not ledger.empty:
         dates = ledger["added"].dropna().astype(str).str.slice(0, 10)
         parsed = dates[dates.str.match(r"^\d{4}-\d{2}-\d{2}$")]
@@ -541,7 +541,8 @@ def render_home(ins: dict, ledger: pd.DataFrame):
     st.markdown(f"""
     <div class="hero">
         <h1>🌿 SystemDesign</h1>
-        <p style="color:{MUTED};margin:0">Your staff-engineer roadmap — {ins['total']} problems,
+        <!-- hero -->
+        <p style="color:{MUTED};margin:0">{ins['total']} design problems,
         {ins['wiki'].get('words', 0):,} words of study material, and an agent that adds new
         problems automatically.</p>
         <div style="margin-top:8px">
@@ -726,41 +727,87 @@ def render_browser(problems: dict):
 
 
 def render_agent_page(problems: dict, ledger: pd.DataFrame, run_log: list, pr_history: list):
-    st.markdown("## 🤖 Agent Status")
-    mini_stat_row([
-        ("Ledger entries", len(ledger)),
-        ("Runs logged", len(run_log)),
-        ("Last run", (run_log[-1]["when"][:16] if run_log else "never")),
-        ("Added last run", str(len(run_log[-1]["problems"]) if run_log else 0)),
-    ])
+    st.markdown("## 🤖 Agent Activity")
+
+    # ---- health summary -------------------------------------------
+    repo_slugs = {p.slug for lst in problems.values() for p in lst}
+    merged = 0 if ledger.empty else int(ledger["slug"].isin(repo_slugs).sum())
+    pending = (0 if ledger.empty else len(ledger)) - merged
 
     if run_log:
-        st.markdown("### Recent runs")
-        df = pd.DataFrame([
-            {"When": r["when"], "PR": r["pr"] or "—", "Problems": len(r["problems"])}
-            for r in reversed(run_log[-10:])
-        ])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.success(f"🟢 Agent healthy — last run **{run_log[-1]['when'][:16]}** "
+                   f"(added **{len(run_log[-1]['problems'])}** problems)")
+    else:
+        st.warning("🟡 No runs logged yet — the scheduler adds entries to `.agent/Run-Log.md`.")
 
+    mini_stat_row([
+        ("✅ Merged", merged),
+        ("⏳ Pending", pending),
+        ("🔁 Total runs", len(run_log)),
+        ("➕ Added last run", str(len(run_log[-1]["problems"]) if run_log else 0)),
+    ])
+
+    # ---- activity sparkline: problems per run ---------------------
+    if run_log:
+        st.markdown("#### 📊 Problems added per run")
+        runs_df = pd.DataFrame([
+            {"Run": f"Run {i + 1}", "Added": len(r["problems"])}
+            for i, r in enumerate(reversed(run_log[-15:]))
+        ]).set_index("Run")
+        st.bar_chart(runs_df, height=200, color=ACCENT)
+
+    # ---- run history as interactive cards -------------------------
+    st.markdown("#### 🗂️ Run history")
+    if run_log:
+        for r in reversed(run_log[-8:]):
+            n = len(r["problems"])
+            with st.expander(f"🕐 {r['when'][:16]}  ·  {n} problem{'s' if n != 1 else ''}" +
+                             (f"  ·  PR {r['pr']}" if r['pr'] else "")):
+                if r["pr"]:
+                    st.markdown(f"**Pull request:** {r['pr']}")
+                if r["problems"]:
+                    st.markdown("**Problems added:**")
+                    for slug in r["problems"]:
+                        merged_now = "✅" if slug in repo_slugs else "⏳"
+                        st.markdown(f"- {merged_now} `{slug}`")
+                else:
+                    st.caption("No problems recorded for this run.")
+    else:
+        st.info("Run history will appear here after the first scheduled run.")
+
+    # ---- ledger with filters ---------------------------------------
     if not ledger.empty:
-        st.markdown("### Ledger")
-        repo_slugs = {p.slug for lst in problems.values() for p in lst}
+        st.markdown("#### 📒 Ledger")
         show = ledger.copy()
         show["status"] = show["slug"].map(lambda s: "✅ merged" if s in repo_slugs else "⏳ pending")
-        st.dataframe(show, use_container_width=True, hide_index=True, height=320)
+        c1, c2 = st.columns(2)
+        with c1:
+            f_status = st.selectbox("Status", ["All", "✅ merged", "⏳ pending"], label_visibility="collapsed")
+        with c2:
+            f_src = st.selectbox("Source", ["All"] + sorted(set(show["source"].fillna("unknown"))),
+                                 label_visibility="collapsed")
+        if f_status != "All":
+            show = show[show["status"] == f_status]
+        if f_src != "All":
+            show = show[show["source"].fillna("unknown") == f_src]
+        st.dataframe(show, use_container_width=True, hide_index=True, height=min(420, 35 * len(show) + 60))
+        st.caption(f"{len(show)} of {len(ledger)} ledger entries shown")
 
-    st.markdown("### Recent pull requests")
+    # ---- PRs --------------------------------------------------------
+    st.markdown("#### 🔀 Recent pull requests")
     if pr_history:
-        for pr in pr_history[:5]:
-            st.markdown(f"- [#{pr.get('number', '?')}]({pr.get('url', '#')}) "
-                        f"**{pr.get('title', '')}** `{pr.get('state', '')}` — "
-                        f"{(pr.get('createdAt') or '')[:10]}")
+        for pr in pr_history[:8]:
+            state_icon = {"OPEN": "🟢", "MERGED": "🟣", "CLOSED": "🔴"}.get(
+                str(pr.get("state", "")).upper(), "⚪")
+            st.markdown(
+                f"{state_icon} [#{pr.get('number', '?')}]({pr.get('url', '#')}) "
+                f"**{pr.get('title', '')}** — {(pr.get('createdAt') or '')[:10]}")
     else:
         st.caption("PR history unavailable (needs `gh` CLI authenticated locally).")
 
 
 def render_levels(done: int, total: int, problems: dict):
-    st.markdown("## 🎯 Level Progress")
+    st.markdown("## 🎯 Milestones")
     pct = done / total if total else 0.0
     for level, info in STAFF_LEVELS.items():
         target = info["target"]
@@ -823,12 +870,52 @@ def main():
     prog = progress_state()
     done = sum(1 for v in prog.values() if v)
 
-    # ---- Navigation: compact segmented pills in the sidebar, mobile-first ----
+    # ---- Smart sidebar: dynamic stats, quick actions, health ----
     with st.sidebar:
-        st.markdown(f"# 🌿 SystemDesign")
-        st.caption(f"{ins['total']} problems · {done} solved · {ins['agent_added']} agent-added")
+        st.markdown("# 🌿 SystemDesign")
+
+        # dynamic health pill
+        total_n = ins["total"]
+        if run_log:
+            st.markdown(badge("🟢 Agent active") + " " + badge(f"📦 {total_n} problems"),
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(badge("🟡 Awaiting first run") + " " + badge(f"📦 {total_n} problems"),
+                        unsafe_allow_html=True)
+
+        # dynamic progress ring (simple bar, mobile-friendly)
+        pct = done / ins["total"] if ins["total"] else 0
+        st.progress(min(pct, 1.0))
+        st.caption(f"**{done}** solved · **{ins['agent_added']}** agent-added · "
+                   f"**{len(ins['by_category'])}** modules live")
+
         st.divider()
         page = st.radio("Navigate", NAV_PAGES, index=0, label_visibility="collapsed")
+
+        # quick actions — jump straight to an action from anywhere
+        st.divider()
+        st.caption("⚡ Quick actions")
+        qa1, qa2 = st.columns(2)
+        with qa1:
+            if st.button("🎲 Random", use_container_width=True,
+                         help="Jump to a random unsolved problem"):
+                st.session_state["nav_jump"] = "🎲 Pick One"
+                st.rerun()
+        with qa2:
+            if st.button("🤖 Agent", use_container_width=True,
+                         help="Check latest agent activity"):
+                st.session_state["nav_jump"] = "🤖 Agent"
+                st.rerun()
+
+        # dynamic agent heartbeat, only when data exists
+        if run_log:
+            st.divider()
+            with st.expander("💓 Last heartbeat"):
+                st.write(f"**When:** {run_log[-1]['when'][:19]}")
+                st.write(f"**Added:** {len(run_log[-1]['problems'])} problems")
+                if run_log[-1].get("pr"):
+                    st.write(f"**PR:** {run_log[-1]['pr']}")
+
         st.divider()
         if st.button("🔄 Refresh data", use_container_width=True):
             discover_problems_raw.clear()
@@ -839,7 +926,13 @@ def main():
             repo_git_stats.clear()
             st.toast("Cache cleared — reloading…")
             st.rerun()
-        st.caption(f"Repo: `{REPO_ROOT.name}`")
+        st.caption(f"Repo: `{REPO_ROOT.name}` · branch `{ins['git'].get('branch') or '—'}`")
+
+    # honor quick-action jumps
+    if "nav_jump" in st.session_state:
+        jump = st.session_state.pop("nav_jump")
+        if jump in NAV_PAGES:
+            page = jump
 
     if page == "🏠 Home":
         render_home(ins, ledger)
