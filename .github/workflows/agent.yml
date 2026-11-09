@@ -126,12 +126,21 @@ jobs:
           COUNT=$(gh pr list --repo ${GITHUB_REPOSITORY} --state open \
             --search "in:title auto-generated" \
             --json number --jq 'length' 2>/dev/null || echo 0)
-          BRANCHED=$(gh api "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
-            --jq '[.[] | select(.name | startswith("agent/add-problems"))] | length' 2>/dev/null || echo 0)
+          # Collect stale agent branches (leftovers from failed runs)
+          STALE=$(gh api "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+            --jq '[.[] | select(.name | startswith("agent/add-problems")) | .name]' 2>/dev/null || echo '')
+          BRANCHED=$(echo "$STALE" | grep -c 'agent/' || true)
           echo "open-agent-prs=$COUNT agent-branches=$BRANCHED"
-          if [ "$COUNT" != "0" ] || [ "${BRANCHED:-0}" != "0" ]; then
+          if [ "$COUNT" != "0" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
+            # No open agent PR -> stale branches are orphans from failed runs;
+            # delete them so the guard doesn't block forever.
+            for b in $STALE; do
+              [ -n "$b" ] || continue
+              echo "Deleting stale branch: $b"
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/$b" 2>/dev/null || true
+            done
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
