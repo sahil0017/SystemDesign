@@ -118,14 +118,20 @@ class GitHubClient:
 
         # Point subsequent git operations at the worktree
         original_repo_path = self.repo_path
-        self.repo_path = self.repo_path.parent / (self.repo_path.name + "-agent-pr")
+        wt_path = self.repo_path.parent / (self.repo_path.name + "-agent-pr")
+        self.repo_path = wt_path
 
         try:
+            # Copy the generated files (and modified README) from the main
+            # checkout into the fresh worktree — the worktree starts clean,
+            # so without this step `git status` would be empty and no PR
+            # would ever be created.
+            copied = self._copy_generated_files(generated_files)
+            logger.info("Copied %d generated files into worktree", copied)
             pr_url = await self._commit_and_push(branch, problems)
         finally:
             self.repo_path = original_repo_path
-            await self._run_git("worktree", "remove", "--force",
-                                str(self.repo_path.parent / (self.repo_path.name + "-agent-pr")))
+            await self._run_git("worktree", "remove", "--force", str(wt_path))
             await self._run_git("worktree", "prune")
 
         if not pr_url:
@@ -157,6 +163,28 @@ class GitHubClient:
             return ""
 
         return "ok"
+
+    def _copy_generated_files(self, generated_files: list) -> int:
+        """Copy generated files from the main checkout into the worktree."""
+        main_repo = Path(settings.REPO_PATH)
+        copied = 0
+        for gf in generated_files:
+            src = main_repo / gf.path
+            dst = self.repo_path / gf.path
+            if not src.exists():
+                logger.warning("Generated file missing from main checkout: %s", gf.path)
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(src.read_text())
+            copied += 1
+
+        # Also carry over the modified main README
+        readme_src = main_repo / "README.md"
+        readme_dst = self.repo_path / "README.md"
+        if readme_src.exists():
+            readme_dst.write_text(readme_src.read_text())
+            copied += 1
+        return copied
 
     async def _create_pull_request(self, branch: str, problems: list) -> str:
         """Create a pull request via gh CLI."""
