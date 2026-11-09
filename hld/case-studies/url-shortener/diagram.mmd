@@ -1,0 +1,29 @@
+sequenceDiagram
+    participant Client
+    participant LB as Load Balancer
+    participant API as API Gateway
+    participant URL as URL Service
+    participant Cache as Redis Cache
+    participant DB as Database
+
+    Note over Client, DB: Shorten URL Flow
+    Client->>LB: POST /api/v1/urls
+    LB->>API: Forward request
+    API->>URL: Generate short code
+    URL->>DB: Store mapping
+    DB-->>URL: Success
+    URL-->>API: Return short URL
+    API-->>Client: 201 Created
+
+    Note over Client, DB: Redirect Flow
+    Client->>LB: GET /abc123
+    LB->>API: Forward request
+    API->>Cache: Check cache
+    alt Cache hit
+        Cache-->>API: Return long URL
+    else Cache miss
+        API->>DB: Query mapping
+        DB-->>API: Return long URL
+        API->>Cache: Cache result
+    end
+    API-->>Client: 301 Redirect
