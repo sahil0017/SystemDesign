@@ -67,9 +67,15 @@ class SystemDesignAgent:
         if history_slugs:
             logger.info("Run history: %d previously added slugs will be skipped", len(history_slugs))
 
-        # 1. Scrape trending problems
+        # 1. Scrape trending problems (or reuse state saved by an earlier
+        #    pipeline stage to avoid a second full scrape)
         logger.info("Step 1/5: Scraping trending problems from web resources...")
-        trending = await self.scraper.scrape_all()
+        trending = self._load_scraped_state()
+        if trending is None:
+            trending = await self.scraper.scrape_all()
+            self._save_scraped_state(trending)
+        else:
+            logger.info("Reusing %d scraped problems from earlier pipeline stage", len(trending))
         if not trending:
             logger.info("No trending problems found. Exiting.")
             return []
@@ -124,6 +130,51 @@ class SystemDesignAgent:
         # Return what was actually generated (missing is pre-truncation and
         # includes problems dropped by the per-run cap)
         return generated if pr_url else [], pr_url or ""
+
+    # ------------------------------------------------------------------ #
+    #  Cross-stage state sharing (CI passes SCRAPED_STATE_DIR; also lets a
+    #  single run avoid re-scraping on retries)
+    # ------------------------------------------------------------------ #
+    def _state_dir(self):
+        d = os.environ.get("SCRAPED_STATE_DIR")
+        return Path(d) if d else None
+
+    def _load_scraped_state(self):
+        state_dir = self._state_dir()
+        if not state_dir:
+            return None
+        f = state_dir / "trending.json"
+        if not f.exists():
+            return None
+        try:
+            from agent.core.models import TrendingProblem as TP
+            data = json.loads(f.read_text())
+            return [
+                TP(name=d["name"], category=Category(d["category"]),
+                   source=d["source"], url=d["url"],
+                   source_count=d.get("source_count", 1))
+                for d in data
+            ]
+        except Exception as exc:
+            logger.warning("Failed to load scraped state: %s", exc)
+            return None
+
+    def _save_scraped_state(self, trending) -> None:
+        state_dir = self._state_dir()
+        if not state_dir:
+            return
+        try:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            data = [
+                {"name": p.name, "category": p.category.value,
+                 "source": p.source, "url": p.url,
+                 "source_count": p.source_count}
+                for p in trending
+            ]
+            (state_dir / "trending.json").write_text(json.dumps(data))
+            logger.info("Saved %d scraped problems for later stages", len(data))
+        except Exception as exc:
+            logger.warning("Failed to save scraped state: %s", exc)
 
     async def diagnose(self) -> dict:
         """Run a quick diagnostic to check all dependencies."""

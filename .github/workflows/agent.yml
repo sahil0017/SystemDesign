@@ -152,6 +152,12 @@ jobs:
           FORCE="${{ github.event.inputs.force_run || 'false' }}"
           if [ "$FORCE" = "true" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
+      - name: Restore scraped-data cache (shared with publish stage)
+        uses: actions/cache@v4
+        with:
+          path: scraped-state
+          key: scraped-${{ github.run_id }}
+
       - name: Discover problems (scrape → dedup → classify)
         id: discover
         if: steps.guard.outputs.skip != 'true'
@@ -159,7 +165,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_PATH: ${{ github.workspace }}
           LOG_LEVEL: INFO
-          AGENT_STAGE: discover
+          SCRAPED_STATE_DIR: ${{ github.workspace }}/scraped-state
         run: |
           python -m agent.agent_main --stage discover 2>&1 | tee discover.log
           HAS_WORK=$(grep -c "DISCOVER_RESULT" discover.log || true)
@@ -204,6 +210,12 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Restore scraped-data cache (saved by discover stage)
+        uses: actions/cache@v4
+        with:
+          path: scraped-state
+          key: scraped-${{ github.run_id }}
+
       - name: Install dependencies + gh
         run: |
           pip install -r agent/requirements.txt
@@ -224,6 +236,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_PATH: ${{ github.workspace }}
           LOG_LEVEL: INFO
+          SCRAPED_STATE_DIR: ${{ github.workspace }}/scraped-state
         run: |
           python -m agent.agent_main --stage publish 2>&1 | tee publish.log
           LINE=$(grep "PUBLISH_RESULT" publish.log | tail -1 || true)

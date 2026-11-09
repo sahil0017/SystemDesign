@@ -11,7 +11,6 @@ If the wiki is disabled or unreachable, the ledger degrades gracefully to
 empty history (artifact/local file remains a fallback).
 """
 
-import json
 import logging
 import os
 import subprocess
@@ -41,13 +40,45 @@ class LedgerEntry:
 
 @dataclass
 class WikiLedger:
-    """Read/append the Problem Ledger page in the repo's git wiki."""
+    """Read/append the Problem Ledger page in the repo's git wiki.
+
+    NOTE: the default GitHub Actions GITHUB_TOKEN cannot push to the wiki
+    repo. Provide a PAT via token= for wiki writes; without one the ledger
+    falls back to a plain markdown file inside the repo (.agent/), which is
+    versioned in git and requires no special permissions.
+    """
 
     repo_owner: str
     repo_name: str
     token: str = ""
     dry_run: bool = False
     _workdir: Path = field(default=None, repr=False)
+    _wiki_enabled: bool = field(default=True, repr=False)
+
+    # ------------------------------------------------------------------ #
+    #  Fallback: in-repo ledger file (works with plain GITHUB_TOKEN)
+    # ------------------------------------------------------------------ #
+    REPO_LEDGER_DIR = ".agent"
+
+    def _repo_ledger_file(self, page: str) -> Path:
+        base = Path(os.environ.get("REPO_PATH", ".")) / self.REPO_LEDGER_DIR
+        return base / f"{page}.md"
+
+    def _read_repo_file(self, page: str) -> str:
+        f = self._repo_ledger_file(page)
+        if f.exists():
+            return f.read_text()
+        return ""
+
+    def _write_repo_file(self, page: str, content: str) -> bool:
+        try:
+            f = self._repo_ledger_file(page)
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
+            return True
+        except Exception as exc:
+            logger.error("In-repo ledger write failed: %s", exc)
+            return False
 
     # ------------------------------------------------------------------ #
     #  Wiki clone helpers
@@ -79,6 +110,18 @@ class WikiLedger:
         return workdir
 
     def _read_page(self, page: str) -> str:
+        # Prefer the wiki; silently fall back to the in-repo ledger file
+        if self._wiki_enabled:
+            try:
+                content = self._clone_read(page)
+                if content:
+                    return content
+            except Exception as exc:
+                logger.warning("Wiki read failed (%s); using in-repo ledger", exc)
+                self._wiki_enabled = False
+        return self._read_repo_file(page)
+
+    def _clone_read(self, page: str) -> str:
         workdir = self._clone()
         f = workdir / f"{page}.md"
         if f.exists():
@@ -87,28 +130,36 @@ class WikiLedger:
 
     def _write_page(self, page: str, content: str) -> bool:
         if self.dry_run:
-            logger.info("[DRY RUN] Skipping wiki page write: %s", page)
+            logger.info("[DRY RUN] Skipping ledger page write: %s", page)
             return True
-        try:
-            workdir = self._clone()
-            (workdir / f"{page}.md").write_text(content)
-            subprocess.run(["git", "-C", str(workdir), "add", "-A"], check=True)
-            subprocess.run(
-                ["git", "-C", str(workdir), "commit", "-m",
-                 f"ledger: update {page} (automated)"],
-                capture_output=True, check=False,
-            )
-            result = subprocess.run(
-                ["git", "-C", str(workdir), "push", "-u", "origin", "master", "--force"],
-                capture_output=True, text=True, timeout=120,
-            )
-            if result.returncode != 0:
-                logger.error("Wiki push failed: %s", result.stderr[:200])
-                return False
-            return True
-        except Exception as exc:
-            logger.error("Wiki write failed: %s", exc)
-            return False
+        # Wiki requires a PAT (plain GITHUB_TOKEN can't push to wiki git).
+        if self._wiki_enabled:
+            try:
+                return self._write_wiki(page, content)
+            except Exception as exc:
+                logger.warning("Wiki write failed (%s); falling back to in-repo ledger", exc)
+                self._wiki_enabled = False
+        return self._write_repo_file(page, content)
+
+    def _write_wiki(self, page: str, content: str) -> bool:
+        if not self.token:
+            raise RuntimeError("no wiki token provided")
+        workdir = self._clone()
+        (workdir / f"{page}.md").write_text(content)
+        subprocess.run(["git", "-C", str(workdir), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(workdir), "commit", "-m",
+             f"ledger: update {page} (automated)"],
+            capture_output=True, check=False,
+        )
+        result = subprocess.run(
+            ["git", "-C", str(workdir), "push", "-u", "origin", "master", "--force"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr[:200])
+        logger.info("Wiki page %s updated", page)
+        return True
 
     # ------------------------------------------------------------------ #
     #  Problem ledger API
