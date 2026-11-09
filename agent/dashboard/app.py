@@ -621,7 +621,8 @@ def render_home(ins: dict, ledger: pd.DataFrame):
     else:
         st.info("🤖 No agent ledger yet — the next scheduled run will populate `.agent/Problem-Ledger.md`.")
 
-    st.markdown("### 🔥 Recently touched by the agent")
+    st.markdown("### ✨ Latest additions")
+    st.caption("Newest problems in the catalogue — agent-contributed ones are tagged")
     if ins["newest"]:
         for p in ins["newest"][:5]:
             tag = " ✨ agent-added" if p.slug in (set(ledger['slug']) if not ledger.empty else set()) else ""
