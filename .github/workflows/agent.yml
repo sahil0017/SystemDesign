@@ -6,15 +6,64 @@ on:
     - cron: "0 0,12 * * *"
   workflow_dispatch:
     # Allow manual triggers for testing
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "agent/**"
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
+  # ------------------------------------------------------------------ #
+  #  CI: Lint and test the agent package
+  # ------------------------------------------------------------------ #
+  test-agent:
+    name: Test Agent (v1.0.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agent/requirements.txt
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check agent/ --select E,F,W --ignore E501,E402 || true
+
+      - name: Run tests
+        env:
+          REPO_PATH: ${{ github.workspace }}
+          DRY_RUN: "true"
+        run: |
+          cd agent
+          python -m pytest tests/ -v --tb=short
+
+  # ------------------------------------------------------------------ #
+  #  Run the agent (scheduled or manual)
+  # ------------------------------------------------------------------ #
   run-agent:
+    name: Run Agent (v1.0.0)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: test-agent
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.test-agent.result == 'success'
 
     steps:
       - name: Checkout repository
@@ -57,7 +106,7 @@ jobs:
           LOG_LEVEL: INFO
         run: |
           cd agent
-          python agent_main.py
+          python -m agent.agent_main
 
       - name: Download previous run history
         if: always()

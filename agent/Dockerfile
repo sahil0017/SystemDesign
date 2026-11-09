@@ -21,7 +21,7 @@ WORKDIR /app
 COPY agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy agent code
+# Copy agent code (refactored package structure)
 COPY agent/ .
 
 # Clone the repository at startup (mounted via volume in production)
@@ -36,4 +36,9 @@ ENV RUN_HISTORY_FILE=/tmp/agent-cache/run_history.json
 # Create cache directory
 RUN mkdir -p /tmp/agent-cache
 
-CMD ["python", "agent_main.py"]
+# Version label
+LABEL version="1.0.0" \
+      description="SystemDesign Problem Set Agent v1.0.0" \
+      maintainer="sahil0017"
+
+CMD ["python", "-m", "agent.agent_main"]

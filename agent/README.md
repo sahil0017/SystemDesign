@@ -1,8 +1,8 @@
-# SystemDesign Problem Set Agent
+# SystemDesign Problem Set Agent v1.0.0
 
 Automated agent that scans trending system design resources, identifies missing problem sets, generates new problem README files, and creates GitHub PRs.
 
-**Deployed via GitHub Actions Cron** — runs every 12 hours automatically.
+**Version**: 1.0.0 | **Deployed via GitHub Actions** — runs every 12 hours automatically.
 
 ## Features
 
@@ -15,6 +15,7 @@ Automated agent that scans trending system design resources, identifies missing 
 - **PR deduplication**: Checks for existing open agent PRs before creating new ones
 - **Max problems per run**: Limits PRs to 5 problems by default to keep them manageable
 - **Streamlit dashboard**: Web UI to track problems and staff engineer progress
+- **Comprehensive tests**: pytest test suite covering models, fuzzy matching, cache, and generator
 
 ## Architecture
 
@@ -24,12 +25,53 @@ Automated agent that scans trending system design resources, identifies missing 
        ▼
  1. Spins up Linux Runner
  2. Checks out target codebase
- 3. Executes agent_main.py ───► (Scrapes/Evaluates problem sets)
+ 3. Runs CI: lint + tests ───► (Validates agent code)
        │
        ▼
- 4. Modifies local project package files
- 5. Auto-commits branch & pushes to GitHub
- 6. Uses GitHub CLI to create PR & assign sahil0017
+ 4. Executes agent ───► (Scrapes/Evaluates problem sets)
+       │
+       ▼
+ 5. Modifies local project package files
+ 6. Auto-commits branch & pushes to GitHub
+ 7. Uses GitHub CLI to create PR & assign sahil0017
+```
+
+## Package Structure
+
+```
+agent/
+├── __init__.py              # Package exports
+├── agent_main.py            # Main orchestrator + CLI entry point
+├── scheduler.py             # One-shot runner for GitHub Actions
+├── requirements.txt         # Python dependencies
+├── Dockerfile               # Container image
+├── README.md                # This file
+├── core/                    # Core shared modules
+│   ├── __init__.py          # Version info
+│   ├── config.py            # Environment-based settings
+│   └── models.py            # Data models (TrendingProblem, RunHistory, etc.)
+├── scraper/                 # Web scraping module
+│   ├── __init__.py
+│   ├── scraper.py           # TrendScraper class
+│   ├── cache.py             # ResponseCache class
+│   └── sources.py           # Source definitions + problem keywords
+├── generator/               # Problem README generation
+│   ├── __init__.py
+│   ├── generator.py         # ProblemGenerator class
+│   ├── fuzzy.py             # Levenshtein distance, similarity, normalize
+│   └── templates.py         # Problem-specific content templates
+├── github/                  # GitHub integration
+│   ├── __init__.py
+│   └── client.py            # GitHubClient class (gh CLI)
+├── dashboard/               # Streamlit dashboard
+│   ├── app.py               # Dashboard application
+│   └── README.md            # Dashboard documentation
+└── tests/                   # Test suite
+    ├── __init__.py
+    ├── test_models.py       # Data model tests
+    ├── test_fuzzy.py        # Fuzzy matching tests
+    ├── test_cache.py        # Response cache tests
+    └── test_generator.py    # Problem generator tests
 ```
 
 ## Configuration
@@ -51,6 +93,20 @@ All settings are environment variables:
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `DRY_RUN` | `false` | If true, skip git/gh commands |
 
+## CI/CD Pipeline
+
+The agent has a two-stage CI/CD pipeline (`.github/workflows/agent.yml`):
+
+### Stage 1: Test Agent (CI)
+- **Triggers**: Push/PR to `agent/**`, schedule, manual dispatch
+- **Steps**: Lint with ruff → Run pytest tests
+- **Purpose**: Validate code quality before running the agent
+
+### Stage 2: Run Agent (CD)
+- **Triggers**: Schedule (every 12h), manual dispatch
+- **Dependency**: Runs only if Stage 1 passes
+- **Steps**: Install deps → Run agent → Upload run history
+
 ## Deployment
 
 ### GitHub Actions (Default)
@@ -60,15 +116,6 @@ The agent runs automatically via `.github/workflows/agent.yml`:
 - **Schedule**: Every 12 hours (midnight and noon UTC)
 - **Manual trigger**: Available via "Run workflow" button in Actions tab
 - **Token**: Uses `GITHUB_TOKEN` (automatic, no setup needed)
-- **Artifacts**: Run history persisted between runs via GitHub Actions artifacts
-
-To enable:
-1. Merge this PR
-2. Go to **Actions** → **SystemDesign Agent** → enable workflows if disabled
-3. The agent will run automatically every 12 hours
-
-To run manually:
-1. Go to **Actions** → **SystemDesign Agent** → **Run workflow**
 
 ### Local Development
 
@@ -77,14 +124,22 @@ cd agent
 pip install -r requirements.txt
 export GITHUB_TOKEN=your_token
 export REPO_PATH=/path/to/SystemDesign
-python agent_main.py
+python -m agent.agent_main
 ```
 
 ### Diagnostic Mode
 
 ```bash
 cd agent
-AGENT_MODE=diagnostic python agent_main.py
+AGENT_MODE=diagnostic python -m agent.agent_main
+```
+
+### Run Tests
+
+```bash
+cd agent
+pip install -r requirements.txt
+python -m pytest tests/ -v
 ```
 
 ## Streamlit Dashboard
@@ -108,30 +163,6 @@ streamlit run app.py
 | 🤖 Agent Status | Agent run history and recent PRs |
 | 🔍 Browse Problems | Search, filter, and view problem details |
 
-### Deploy Dashboard on Streamlit Cloud
-
-1. Go to https://share.streamlit.app
-2. Connect repository `sahil0017/SystemDesign`
-3. Set main file to `agent/dashboard/app.py`
-4. Add dependencies from `agent/requirements.txt`
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `agent_main.py` | Main orchestrator and CLI entry point |
-| `scraper.py` | Web scraper with caching, retry, and concurrent fetching |
-| `problem_generator.py` | README generation with fuzzy matching and templates |
-| `github_client.py` | GitHub PR creation via `gh` CLI |
-| `scheduler.py` | One-shot runner for GitHub Actions |
-| `config.py` | Environment-based configuration |
-| `models.py` | Data models (TrendingProblem, RunHistory, etc.) |
-| `dashboard/app.py` | Streamlit dashboard for tracking progress |
-| `dashboard/README.md` | Dashboard documentation |
-| `Dockerfile` | Container image (for local Docker testing) |
-| `requirements.txt` | Python dependencies |
-| `.gitignore` | Python cache and temp files |
-
 ## How It Works
 
 1. **Scrape**: Concurrently fetches 5 web sources, caches responses for 6 hours
@@ -140,3 +171,9 @@ streamlit run app.py
 4. **Generate**: Creates tailored README files using problem-specific templates
 5. **PR**: Creates a GitHub PR with `sahil0017` as reviewer, checks for existing open PRs first
 6. **History**: Persists added problem slugs via GitHub Actions artifacts to avoid duplicates
+
+## Release Versions
+
+| Version | Date | Changes |
+|---------|------|---------|
+| **1.0.0** | 2026-11-09 | Initial release: refactored package structure, comprehensive tests, CI/CD pipeline, version tracking |

@@ -1,5 +1,4 @@
-"""
-Configuration settings for the SystemDesign agent.
+"""Configuration settings for the SystemDesign agent.
 
 All settings can be overridden via environment variables.
 Deployed via GitHub Actions cron (every 12 hours).

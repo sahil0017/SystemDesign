@@ -19,11 +19,11 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import settings
-from github_client import GitHubClient
-from models import Category, RunHistory
-from problem_generator import ProblemGenerator
-from scraper import TrendScraper
+from agent.core.config import settings
+from agent.core.models import Category, RunHistory
+from agent.generator.generator import ProblemGenerator
+from agent.github.client import GitHubClient
+from agent.scraper.scraper import TrendScraper
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
@@ -41,53 +41,38 @@ class SystemDesignAgent:
         self.github = GitHubClient()
         self.repo_path = Path(settings.REPO_PATH)
 
-    # ------------------------------------------------------------------ #
-    #  Main entry point
-    # ------------------------------------------------------------------ #
     async def run(self, run_history: RunHistory = None) -> list:
-        """Execute the full agent pipeline.
-
-        Args:
-            run_history: Optional run history to skip previously added problems.
-
-        Returns:
-            List of TrendingProblem objects that were successfully added.
-        """
+        """Execute the full agent pipeline."""
         start_time = datetime.now(timezone.utc)
         logger.info("Starting SystemDesign agent run at %s", start_time.isoformat())
 
-        # Load run history slugs
         history_slugs = run_history.added_slugs if run_history else set()
         if history_slugs:
             logger.info("Run history: %d previously added slugs will be skipped", len(history_slugs))
 
-        # 1. Scrape trending problems (concurrent, with caching)
+        # 1. Scrape trending problems
         logger.info("Step 1/5: Scraping trending problems from web resources...")
         trending = await self.scraper.scrape_all()
         if not trending:
             logger.info("No trending problems found. Exiting.")
             return []
-
         logger.info("Found %d trending problems across all sources", len(trending))
 
-        # 2. Compare with existing problems (fuzzy matching + run history)
+        # 2. Compare with existing problems
         logger.info("Step 2/5: Comparing with existing repo problems...")
         existing = self.generator.list_existing_problems()
         missing = self.generator.filter_missing(trending, existing, history_slugs)
-
         if not missing:
-            logger.info("All trending problems already exist or were previously added. No PR needed.")
+            logger.info("All trending problems already exist. No PR needed.")
             return []
-
         logger.info("Step 2/5: %d new problems to add (after filtering)", len(missing))
 
-        # 3. Generate problem files (with max limit)
+        # 3. Generate problem files
         logger.info("Step 3/5: Generating problem README files...")
         generated = self.generator.generate_all(missing)
         if not generated:
             logger.info("No files were generated. Exiting.")
             return []
-
         logger.info("Step 3/5: Generated %d new problem files", len(generated))
 
         # 4. Update README
@@ -108,12 +93,8 @@ class SystemDesignAgent:
             "Agent run completed in %.1fs: %d problems generated, PR: %s",
             elapsed, len(generated), pr_url or "none",
         )
-
         return missing
 
-    # ------------------------------------------------------------------ #
-    #  Diagnostic helpers
-    # ------------------------------------------------------------------ #
     async def diagnose(self) -> dict:
         """Run a quick diagnostic to check all dependencies."""
         result = {
@@ -122,15 +103,12 @@ class SystemDesignAgent:
             "repo_path_exists": self.repo_path.exists(),
             "repo_path": str(self.repo_path),
         }
-
-        # Check GitHub connectivity
         try:
             await self.github.test_connection()
             result["github_connected"] = True
         except Exception as exc:
             result["github_error"] = str(exc)
 
-        # Check existing problems
         existing = self.generator.list_existing_problems()
         result["existing_problems"] = {
             "hld": sum(1 for p in existing if p.category == Category.HLD),
@@ -140,7 +118,6 @@ class SystemDesignAgent:
             "java": sum(1 for p in existing if p.category == Category.JAVA),
         }
         result["total_problems"] = len(existing)
-
         return result
 
 
@@ -149,24 +126,19 @@ class SystemDesignAgent:
 # ------------------------------------------------------------------ #
 async def main() -> None:
     """CLI entry point for GitHub Actions (one-shot run)."""
-    from models import RunHistory
-    from pathlib import Path
-    import json as json_mod
-
     agent = SystemDesignAgent()
 
-    # If DIAGNOSTIC mode, run checks and exit
     if os.environ.get("AGENT_MODE") == "diagnostic":
         result = await agent.diagnose()
-        print(json_mod.dumps(result, indent=2))
+        print(json.dumps(result, indent=2))
         return
 
-    # Load run history for deduplication across runs
+    # Load run history
     history_path = Path(settings.RUN_HISTORY_FILE)
     history = RunHistory()
     if history_path.exists():
         try:
-            data = json_mod.loads(history_path.read_text())
+            data = json.loads(history_path.read_text())
             history = RunHistory.from_dict(data)
         except Exception:
             pass
