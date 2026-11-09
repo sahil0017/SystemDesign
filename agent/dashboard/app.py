@@ -114,6 +114,55 @@ div[role="radiogroup"] label:hover p {{ color: {ACCENT}; }}
     font-size:.72rem; font-weight:600;
     background:#13251a; color:{ACCENT}; border:1px solid #1d3a26;
 }}
+
+/* ---------- Sidebar navigation: green-on-black, styled like the app ---------- */
+section[data-testid="stSidebar"] > div {{ background: {BG}; }}
+section[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
+
+/* each radio option becomes a selectable card */
+section[data-testid="stSidebar"] div[role="radiogroup"] label {{
+    background: {SURFACE};
+    border: 1px solid #1d2b20;
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    transition: all .15s ease;
+    cursor: pointer;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
+    border-color: {ACCENT};
+    background: #14261a;
+}}
+/* hide the native radio dot, we style the card instead */
+section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
+/* selected card = glowing green */
+section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
+    background: linear-gradient(135deg, #143020 0%, #0e2415 100%);
+    border-color: {ACCENT};
+    box-shadow: 0 0 12px rgba(34,197,94,.25);
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
+    color: {ACCENT} !important; font-weight: 700;
+}}
+
+/* sidebar headers + captions muted green */
+section[data-testid="stSidebar"] h1 {{ color: {ACCENT}; font-size: 1.15rem; }}
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] [data-testid="elementContainer"] .stCaption,
+section[data-testid="stSidebar"] small {{ color: {MUTED} !important; }}
+
+/* sidebar buttons: outline style to match cards */
+section[data-testid="stSidebar"] .stButton > button {{
+    background: {SURFACE}; color: {TEXT};
+    border: 1px solid #1d3a26; border-radius: 10px; font-weight: 600;
+}}
+section[data-testid="stSidebar"] .stButton > button:hover {{
+    border-color: {ACCENT}; color: {ACCENT}; background: #14261a;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] {{
+    background: {SURFACE}; border: 1px solid #1d2b20; border-radius: 12px;
+}}
 .hero {{
     background: linear-gradient(135deg, {SURFACE} 0%, #0e1f14 100%);
     border: 1px solid #1d3a26; border-radius: 16px;
