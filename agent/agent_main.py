@@ -121,7 +121,9 @@ class SystemDesignAgent:
             "Agent run completed in %.1fs: %d problems generated, PR: %s",
             elapsed, len(generated), pr_url or "none",
         )
-        return missing if pr_url else [], pr_url or ""
+        # Return what was actually generated (missing is pre-truncation and
+        # includes problems dropped by the per-run cap)
+        return generated if pr_url else [], pr_url or ""
 
     async def diagnose(self) -> dict:
         """Run a quick diagnostic to check all dependencies."""
