@@ -198,12 +198,15 @@ class GitHubClient:
             "--head", branch,
             "--title", title,
             "--body", body,
-            "--label", "automated",
         ]
         result = await self._run_gh(*cmd)
         if result.returncode != 0:
             logger.error("Failed to create PR: %s", result.stderr[:300])
             return ""
+
+        # Labeling is best-effort — never fail the PR for a missing label
+        await self._run_gh("pr", "edit", result.stdout.strip().split(chr(10))[0].rstrip("/").split("/")[-1],
+                           "--repo", f"{self.repo_owner}/{self.repo_name}", "--add-label", "automated")
 
         pr_url = result.stdout.strip().split("\n")[0]
         logger.info("PR created: %s", pr_url)
