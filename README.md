@@ -6,13 +6,13 @@
 
 | Module | Count | Description |
 |--------|-------|-------------|
-| [HLD](hld/) | 8 fundamentals + 8 case studies + 25 problems | System design fundamentals and real-world case studies |
-| [LLD](lld/) | 4 fundamentals + 49 problems | Object-oriented design with design patterns |
+| [HLD](hld/) | 8 fundamentals + 8 case studies + 35 problems | System design fundamentals and real-world case studies |
+| [LLD](lld/) | 4 fundamentals + 54 problems | Object-oriented design with design patterns |
 | [DB Design](db-design/) | 20 problems | Relational, NoSQL, hybrid, and advanced schema design |
 | [API Modeling](api-modeling/) | 3 fundamentals + 10 problems + tests | REST, gRPC, GraphQL, security, and testing |
-| [Distributed Systems](distributed-systems/) | 8 topics + 17 problems (7 categories) | Kafka, Redis, ZooKeeper, consistency, and patterns |
-| [Java](java/) | 5 topics + 70 problems | Concurrency, collections, JVM, streams, performance |
-| [Trade-offs](tradeoffs/) | 22 trade-offs | Architectural decisions with decision frameworks |
+| [Distributed Systems](distributed-systems/) | 8 topics + 20 problems (7 categories) | Kafka, Redis, ZooKeeper, consistency, and patterns |
+| [Java](java/) | 5 topics + 73 problems | Concurrency, collections, JVM, streams, performance |
+| [Trade-offs](tradeoffs/) | 25 trade-offs | Architectural decisions with decision frameworks |
 | [Blogs & Articles](blogs-articles/) | 25 articles | Technical deep-dives across 5 categories |
 | [Recommended Books](recommended-books/) | 10 books | Curated reading list with summaries |
 | [Notes](notes/) | 3 resources | Interview questions, trade-offs, revision checklist |
@@ -27,10 +27,10 @@
 ## 📚 Modules
 
 ### [HLD - High-Level Design](hld/)
-8 fundamentals + 8 case studies + 25 problems
+8 fundamentals + 8 case studies + 35 problems
 
 ### [LLD - Low-Level Design](lld/)
-4 fundamentals + 49 problems (easy/medium/hard/concurrency)
+4 fundamentals + 54 problems (easy/medium/hard/concurrency)
 
 ### [Database Design & Data Modeling](db-design/)
 20 problems (relational/NoSQL/hybrid/advanced)
@@ -39,13 +39,13 @@
 3 fundamentals + 10 problems + test suite
 
 ### [Distributed Systems](distributed-systems/)
-8 topics + 17 problems
+8 topics + 20 problems
 
 ### [Java](java/)
-5 topics + 70 problems across 6 categories
+5 topics + 73 problems across 6 categories
 
 ### [Trade-offs](tradeoffs/)
-22 architectural trade-offs with decision frameworks
+25 architectural trade-offs with decision frameworks
 
 ### [Blogs & Articles](blogs-articles/)
 25 technical articles across 5 categories
@@ -90,22 +90,23 @@ Each case study includes **README**, **Architecture**, **API Design**, and **Dat
 - **OOP Concepts** — encapsulation, abstraction, inheritance, polymorphism, composition
 - **UML Diagrams** — class, sequence, state machine, component with notation
 
-### Practice Problems (49 Problems)
+### Practice Problems (54 Problems)
 Organized by difficulty level and a dedicated concurrency category. Each problem includes staff-level problem statement, requirements, key design decisions, class diagrams, and production considerations.
 
 **References**: [AlgoMaster](https://algomaster.io/learn/lld), [Educative.io](https://www.educative.io/), [HelloInterview](https://www.hellointerview.com/), [LLD Coding](https://www.lldcoding.com/)
 
-#### Easy (6)
+#### Easy (7)
 | Problem | Key Concepts |
 |---------|-------------|
 | [Parking Lot](lld/problems/easy/parking-lot/) | Multi-level slots, dynamic pricing, vehicle types |
 | [LRU Cache](lld/problems/easy/lru-cache/) | HashMap + Doubly Linked List, O(1) operations, thread safety |
 | [Snake and Ladder](lld/problems/easy/snake-and-ladder/) | Board game simulation, state management |
+| [Snake Game](lld/problems/easy/snake-game/) | State machine, deque, collision detection, grid management |
 | [Task Management](lld/problems/easy/task-management-system/) | State machine, search indexing, optimistic locking |
 | [Tic-Tac-Toe](lld/problems/easy/tic-tac-toe/) | Game engine, win detection, state management |
 | [Vending Machine](lld/problems/easy/vending-machine/) | State pattern, coin handling, product inventory |
 
-#### Medium (15)
+#### Medium (18)
 | Problem | Key Concepts |
 |---------|-------------|
 | [Stack Overflow](lld/problems/medium/stack-overflow/) | Voting, reputation system, Elasticsearch, event-driven |
@@ -123,6 +124,9 @@ Organized by difficulty level and a dedicated concurrency category. Each problem
 | [Library Management](lld/problems/medium/library-management/) | Book catalog, borrowing, reservation system |
 | [Splitwise](lld/problems/medium/splitwise/) | Expense splitting, debt simplification, graph algorithms |
 | [Notification Service](lld/problems/medium/notification-service/) | Multi-channel delivery, templating, rate limiting |
+| [Text Editor](lld/problems/medium/text-editor/) | Gap buffer, command pattern, undo/redo, OT/CRDT |
+| [Movie Ticket Booking](lld/problems/medium/movie-ticket-booking/) | Seat selection, show scheduling, seat locking, payment |
+| [Cricinfo Scorecard](lld/problems/medium/cricinfo-scorecard/) | Event sourcing, WebSocket, real-time stats, CQRS |
 
 #### Hard (13)
 | Problem | Key Concepts |
@@ -202,7 +206,7 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Consistency Models](db-design/problems/advanced/consistency-models/) | CAP, PACELC, quorum, causal consistency, vector clocks |
 | [Backup & Recovery](db-design/problems/advanced/backup-recovery/) | RPO/RTO, PITR, cross-region DR, failover testing |
 
-## Distributed Systems (8 Topics + 17 Problems across 7 Categories)
+## Distributed Systems (8 Topics + 20 Problems across 7 Categories)
 
 ### Topics
 | Topic | Key Concepts |
@@ -225,12 +229,14 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Leader Election](distributed-systems/problems/coordination/leader-election/) | Raft, majority quorum, split-brain prevention |
 | [Consistent Hashing](distributed-systems/problems/coordination/consistent-hashing/) | Hash ring, virtual nodes, rebalancing |
 
-#### Data Management (3) — Caching, config, session state
+#### Data Management (5) — Caching, config, session, vector DB, feature store
 | Problem | Key Concepts |
 |---------|-------------|
 | [Distributed Cache](distributed-systems/problems/data-management/distributed-cache/) | Redis Cluster, slot-based partitioning, replication, failover |
 | [Distributed Config](distributed-systems/problems/data-management/distributed-config/) | Etcd/Consul, long-polling, local cache, secrets management |
 | [Distributed Session](distributed-systems/problems/data-management/distributed-session/) | Redis sessions, JWT, security, scaling |
+| [Distributed Vector DB](distributed-systems/problems/data-management/distributed-vector-db/) | HNSW/IVF-PQ, ANN search, sharding, metadata filtering |
+| [Feature Store](distributed-systems/problems/data-management/feature-store/) | Online/offline storage, point-in-time correctness, training-serving skew |
 
 #### Messaging & Events (2) — Event sourcing, CQRS
 | Problem | Key Concepts |
@@ -250,12 +256,13 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Distributed Tracing](distributed-systems/problems/observability/distributed-tracing/) | OpenTelemetry, sampling, span collection, tiered storage |
 | [Distributed Metrics](distributed-systems/problems/observability/distributed-metrics/) | TSDB, cardinality, downsampling, alerting |
 
-#### Infrastructure (3) — ID generation, search, file storage
+#### Infrastructure (4) — ID generation, search, file storage, secret management
 | Problem | Key Concepts |
 |---------|-------------|
 | [Distributed ID Generator](distributed-systems/problems/infrastructure/distributed-id-generator/) | Snowflake, UUID v7, batch pre-allocation, clock handling |
 | [Distributed Search](distributed-systems/problems/infrastructure/distributed-search/) | Inverted index, sharding, relevance tuning, autocomplete |
 | [Distributed File Storage](distributed-systems/problems/infrastructure/distributed-file-storage/) | Erasure coding, multipart upload, lifecycle, CDN |
+| [Distributed Secret Management](distributed-systems/problems/infrastructure/distributed-secret-management/) | AES-256-GCM, Shamir sharing, dynamic secrets, RBAC |
 
 #### Scheduling (2) — Task scheduling, workflow orchestration
 | Problem | Key Concepts |
@@ -263,7 +270,7 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Distributed Scheduler](distributed-systems/problems/scheduling/distributed-scheduler/) | Cron, DAG workflows, worker management, exactly-once |
 | [Distributed Task Scheduler](distributed-systems/problems/scheduling/distributed-task-scheduler/) | DAG execution, idempotency, leader-based scheduling, retries |
 
-## Java (5 Topics + 70 Problems across 6 Categories)
+## Java (5 Topics + 73 Problems across 6 Categories)
 
 ### Topics
 | Topic | Key Concepts |
@@ -274,7 +281,7 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Streams](java/streams/) | Intermediate/terminal operations, collectors, parallel streams, best practices |
 | [Performance](java/performance/) | Profiling (JFR/async-profiler), GC tuning, benchmarking (JMH), I/O optimization |
 
-### Concurrency Problems (22 Problems)
+### Concurrency Problems (25 Problems)
 | Problem | Key Concepts |
 |---------|-------------|
 | [Thread Pool](java/problems/thread-pool/) | Worker threads, rejection policies, queue selection |
@@ -298,6 +305,9 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 | [Concurrency Fundamentals](java/problems/concurrency/) | Thread lifecycle, synchronization, volatile, JMM |
 | [AtomicReferenceFieldUpdater](java/problems/atomic-reference-field-updater/) | Lock-free field update, CAS, VarHandle |
 | [CompletableFuture Advanced](java/problems/completion-advanced/) | Async composition, retry, timeout, fallback |
+| [Record Patterns & Switch](java/concurrency/problems/record-patterns-switch/) | Java 16+, record destructuring, switch patterns, guards |
+| [Virtual Threads Deep Dive](java/concurrency/problems/virtual-threads-deep-dive/) | Java 21, Project Loom, pinning, migration from reactive |
+| [Pattern Matching](java/concurrency/problems/pattern-matching/) | Java 16+, instanceof patterns, scope rules, migration |
 
 ### Collections Problems (8 Problems)
 | Problem | Key Concepts |
@@ -361,7 +371,7 @@ Comprehensive database schema design, data modeling, and storage architecture pr
 - [Trade-offs](notes/trade-offs.md) — SQL vs NoSQL, consistency vs availability, build vs buy, with staff-level framework
 - [Revision Checklist](notes/revision-checklist.md) — Complete checklist with interview frameworks and weekly revision plan
 
-## Trade-offs (20 Architectural Trade-offs)
+## Trade-offs (25 Architectural Trade-offs)
 
 Architectural trade-offs with decision frameworks and real-world examples. See [Trade-offs Module](tradeoffs/) for details.
 
@@ -388,6 +398,9 @@ Architectural trade-offs with decision frameworks and real-world examples. See [
 | **Performance** | [Lazy vs Eager Loading](tradeoffs/lazy-vs-eager/) | Load on demand vs load upfront |
 | **DevOps** | [CI/CD Pipeline](tradeoffs/ci-cd-pipeline/) | Self-hosted vs managed CI/CD, deployment strategies |
 | **DevOps** | [Observability Strategies](tradeoffs/observability-strategies/) | Metrics vs logs vs traces, correlation, cost management |
+| **AI/ML** | [Vector DB vs Traditional DB](tradeoffs/vector-db-vs-traditional/) | ANN search vs relational queries, semantic vs exact match |
+| **AI/ML** | [Build vs Buy AI Infrastructure](tradeoffs/build-vs-buy-ai/) | Self-hosted models vs managed AI services, cost vs control |
+| **Architecture** | [Edge Computing vs Centralized](tradeoffs/edge-vs-centralized/) | Process at edge vs cloud, latency vs scalability |
 
 ## Diagrams
 
@@ -448,9 +461,9 @@ Curated book list with summaries and key takeaways. See [Recommended Books](reco
 4. **Master concurrency**: Solve LLD and Java concurrency problems to understand thread-safe design
 5. **Design databases**: Work through db-design problems — relational, NoSQL, hybrid, and advanced topics
 6. **Design APIs**: Practice API modeling problems — REST, gRPC, GraphQL, security, and testing
-7. **Review distributed systems**: Understand Kafka, Redis, consistency models, and 17 problems across 7 categories (coordination, data management, messaging, resilience, observability, infrastructure, scheduling)
-8. **Master Java**: 70 problems across 6 categories — concurrency (22), collections (8), JVM (8), performance (8), streams (6), and concurrency design (6)
-9. **Study trade-offs**: Understand 20 architectural decisions and their implications
+7. **Review distributed systems**: Understand Kafka, Redis, consistency models, and 20 problems across 7 categories (coordination, data management, messaging, resilience, observability, infrastructure, scheduling)
+8. **Master Java**: 73 problems across 6 categories — concurrency (25), collections (8), JVM (8), performance (8), streams (6), and concurrency design (6)
+9. **Study trade-offs**: Understand 25 architectural decisions and their implications
 10. **Read blogs & articles**: Deep-dive into technical topics across 5 categories
 11. **Read recommended books**: Start with "must read" books for staff-level knowledge
 12. **Use the revision checklist**: Track progress and follow the weekly revision plan
