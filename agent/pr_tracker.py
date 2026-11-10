@@ -136,17 +136,25 @@ class PRMergeTracker:
             "--paginate", "--jq", ".[].filename",
         )
         slugs = []
+        # directory segments that are never problem slugs
+        reserved = {"problems", "case-studies", "hld", "lld", "db-design",
+                    "distributed-systems", "api-modeling", "java", "tradeoffs",
+                    "easy", "medium", "hard"}
         if result.returncode == 0:
             for fname in result.stdout.splitlines():
                 fname = fname.strip()
-                if fname.endswith("README.md") or fname.endswith(".md"):
-                    parts = fname.split("/")
-                    # <module>/problems/<difficulty>/<slug>/README.md
-                    if len(parts) >= 2 and parts[-1] in ("README.md",) or fname.endswith(".md"):
-                        if len(parts) >= 2:
-                            cand = parts[-2]
-                            if cand and cand not in ("problems", "case-studies") and cand != "":
-                                slugs.append(cand)
+                # strict problem-file shape: <module>/.../<slug>/README.md
+                if not fname.endswith("/README.md") and fname != "README.md":
+                    continue
+                parts = fname.split("/")
+                if len(parts) < 2:
+                    continue  # top-level README (index), not a problem
+                cand = parts[-2]
+                # slug must be a directory name, not a reserved word,
+                # and look like a kebab-case slug (letters/digits/hyphens)
+                if (cand and cand not in reserved
+                        and re.fullmatch(r"[a-z0-9][a-z0-9-]*", cand)):
+                    slugs.append(cand)
         # dedupe, preserve order
         seen = set()
         return [s for s in slugs if not (s in seen or seen.add(s))]
