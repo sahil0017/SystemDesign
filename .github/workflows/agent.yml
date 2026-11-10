@@ -2,8 +2,8 @@ name: SystemDesign Agent
 
 on:
   schedule:
-    # Off-hour cron to avoid GitHub's hourly contention window
-    - cron: "7 4,16 * * *"
+    # Every 3 hours, off the hour (minute 7) to dodge GitHub's contention window
+    - cron: "7 */3 * * *"
   workflow_dispatch:
     inputs:
       force_run:
