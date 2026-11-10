@@ -14,10 +14,21 @@ Design and implement an LRU (Least Recently Used) cache that supports `get` and 
 - **Capacity**: Fixed maximum size defined at construction time.
 - **Access tracking**: Both read and write operations update the "recently used" order.
 
+- Support get(key) operation: returns the value if the key exists, otherwise returns null or -1
+- Support put(key, value) operation: inserts a new key-value pair or updates the value of an existing key
+- If the cache exceeds its capacity, it should automatically evict the least recently used item.
+- Both get and put operations should update the recency of the accessed or inserted item.
+- Keys and values should be generic (e.g., <K, V>), provided the keys are hashable.
+
 ### Non-Functional Requirements
 - **Time complexity**: O(1) for both get and put operations.
 - **Thread safety**: Support concurrent reads; optional concurrent writes.
 - **Memory efficiency**: No memory leaks; evicted entries are garbage collected.
+- Time Complexity: Both get and put operations must run in O(1) time on average.
+- Thread Safety: The implementation must be thread-safe for use in concurrent environments.
+- Modularity: The design should follow object-oriented principles with clean separation of responsibilities.
+- Memory Efficiency: The internal data structures should be optimized for speed and space within the defined constraints.
+
 
 ## Key Design Decisions
 - **Data structure**: HashMap + Doubly Linked List for O(1) lookup and O(1) insertion/deletion.
@@ -29,7 +40,7 @@ Design and implement an LRU (Least Recently Used) cache that supports `get` and 
 
 ```
 ┌─────────────────────┐
-│    LRUCache         │
+│    LRUCache         |
 ├─────────────────────┤
 │ - capacity: int     │
 │ - cache: HashMap    │
