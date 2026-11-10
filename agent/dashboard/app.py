@@ -119,47 +119,29 @@ div[role="radiogroup"] label:hover p {{ color: {ACCENT}; }}
 section[data-testid="stSidebar"] > div {{ background: {BG}; }}
 section[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
 
-/* nav options laid out as a compact 2-col grid (no wasted whitespace) */
-section[data-testid="stSidebar"] div[role="radiogroup"] {{
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-}}
-/* each radio option becomes a selectable card */
-section[data-testid="stSidebar"] div[role="radiogroup"] label {{
+/* nav: compact 2-col button grid (no radio) */
+section[data-testid="stSidebar"] .stButton > button {{
     background: {SURFACE};
     border: 1px solid #1d2b20;
     border-radius: 10px;
     padding: 8px 6px;
-    margin-bottom: 0;
     transition: all .15s ease;
     cursor: pointer;
     text-align: center;
-    justify-content: center;
-    flex-direction: row;
+    font-size: .85rem;
 }}
-section[data-testid="stSidebar"] div[role="radiogroup"] label p {{
-    font-size: .82rem;
-    white-space: nowrap;
+section[data-testid="stSidebar"] .stButton > button:hover {{
+    border-color: {ACCENT} !important;
+    background: #14261a !important;
 }}
-section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
-    border-color: {ACCENT};
-    background: #14261a;
-}}
-/* hide the native radio dot, we style the card instead */
-section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
-/* selected card = glowing green */
-section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
-section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
-    background: linear-gradient(135deg, #143020 0%, #0e2415 100%);
-    border-color: {ACCENT};
+section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    background: linear-gradient(135deg, #143020 0%, #0e2415 100%) !important;
+    border-color: {ACCENT} !important;
     box-shadow: 0 0 12px rgba(34,197,94,.25);
+    color: {ACCENT} !important; font-weight: 700;
 }}
 /* quick-action buttons join the same grid feel */
 section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {{ gap: 6px; }}
-section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
-    color: {ACCENT} !important; font-weight: 700;
-}}
 
 /* sidebar headers + captions muted green */
 section[data-testid="stSidebar"] h1 {{ color: {ACCENT}; font-size: 1.15rem; }}
@@ -955,7 +937,20 @@ def main():
                    f"**{len(ins['by_category'])}** modules live")
 
         st.divider()
-        page = st.radio("Navigate", NAV_PAGES, index=0, label_visibility="collapsed")
+        # button-grid navigation (no radio) — 2 cards per row
+        if "page" not in st.session_state:
+            st.session_state.page = NAV_PAGES[0]
+        rows = [NAV_PAGES[i:i + 2] for i in range(0, len(NAV_PAGES), 2)]
+        for row in rows:
+            cols = st.columns(len(row))
+            for col, item in zip(cols, row):
+                with col:
+                    active = st.session_state.page == item
+                    if st.button(item, key=f"nav_{item}", use_container_width=True,
+                                 type="primary" if active else "secondary"):
+                        st.session_state.page = item
+                        st.rerun()
+        page = st.session_state.page
 
         # quick actions — jump straight to an action from anywhere
         st.divider()
