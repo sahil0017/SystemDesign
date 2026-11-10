@@ -71,6 +71,74 @@ class GitHubClient:
             logger.error("GH command timed out: %s", " ".join(args))
             return subprocess.CompletedProcess(cmd, returncode=1, stdout=b"", stderr=b"Timeout")
 
+    def _slugify(self, name: str) -> str:
+        """Mirror the generator's slug derivation for problem-name comparisons."""
+        return name.lower().replace(" ", "-").replace("_", "-")
+
+    async def open_agent_prs(self) -> list:
+        """List open agent PRs (author is the github-actions bot)."""
+        result = await self._run_gh(
+            "pr", "list",
+            "--repo", f"{self.repo_owner}/{self.repo_name}",
+            "--state", "open",
+            "--author", "app/github-actions",
+            "--json", "number,title,headRefName,url",
+            "--limit", "50",
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            logger.debug("Could not list open agent PRs: %s", result.stderr[:200])
+            return []
+        try:
+            return json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Malformed PR list output; treating as no open agent PRs")
+            return []
+
+    async def slugs_in_open_prs(self) -> set:
+        """Collect problem slugs already proposed in ALL open agent PRs.
+
+        Reads the ledger table embedded in each PR body (slugs are wrapped
+        in backticks), falling back to file listings on the PR head branch.
+        Never raises: failures simply yield an empty set.
+        """
+        slugs: set = set()
+        prs = await self.open_agent_prs()
+        for pr in prs:
+            num = pr.get("number")
+            if not num:
+                continue
+            # 1) try the PR body ledger table
+            body_res = await self._run_gh(
+                "pr", "view", str(num),
+                "--repo", f"{self.repo_owner}/{self.repo_name}",
+                "--json", "body", "--jq", ".body",
+            )
+            if body_res.returncode == 0 and body_res.stdout.strip():
+                import re
+                for line in body_res.stdout.splitlines():
+                    for m in re.findall(r"`([a-z0-9][a-z0-9-]*)`", line):
+                        slugs.add(m)
+                    # also match ledger-style rows: | `slug` |
+            # 2) fall back to the files on the PR's head branch
+            head = pr.get("headRefName")
+            if head:
+                files_res = await self._run_gh(
+                    "api", f"repos/{self.repo_owner}/{self.repo_name}/prs/{num}/files",
+                    "--paginate",
+                    "--jq", ".[].filename",
+                )
+                if files_res.returncode == 0:
+                    for fname in files_res.stdout.splitlines():
+                        fname = fname.strip()
+                        # expected shape: <category>/problems/<folder>/<slug>/README.md
+                        if fname.endswith("README.md"):
+                            parts = fname.split("/")
+                            if len(parts) >= 2:
+                                slugs.add(parts[-2])
+        logger.info("Open agent PRs: %d; slugs already proposed: %d",
+                    len(prs), len(slugs))
+        return slugs
+
     async def has_open_agent_pr(self) -> bool:
         """Check if there's already an open PR from the agent."""
         result = await self._run_gh(
@@ -95,10 +163,28 @@ class GitHubClient:
             return False
 
     async def create_pr(self, generated_files: list, problems: list) -> str:
-        """Create a GitHub PR with the new problem files."""
-        if await self.has_open_agent_pr():
-            logger.warning("There's already an open agent PR. Skipping to avoid duplicates.")
-            return ""
+        """Create a GitHub PR with the new problem files.
+
+        Existing open agent PRs are NOT a blocker: their contents are
+        compared against this run's problems, and only genuinely-new ones
+        go into a fresh PR (older PRs remain untouched for review).
+        """
+        pending = await self.slugs_in_open_prs()
+        open_prs = await self.open_agent_prs()
+        if pending:
+            fresh = [p for p in problems
+                     if self._slugify(p.name) not in pending and p.slug not in pending]
+            skipped = len(problems) - len(fresh)
+            if skipped:
+                logger.info("%d of %d problems already proposed in open PRs — "
+                            "excluding them to avoid duplicates", skipped, len(problems))
+            problems = fresh
+            generated_files = self._filter_generated_files(generated_files, problems)
+            if not problems:
+                logger.info("Nothing new beyond what's already in open PRs. No PR needed.")
+                return ""
+        elif open_prs:
+            logger.info("%d open agent PR(s) exist but none expose parseable slugs; proceeding", len(open_prs))
 
         branch = self._generate_branch_name()
         logger.info("Creating PR on branch: %s", branch)
@@ -163,6 +249,12 @@ class GitHubClient:
             return ""
 
         return "ok"
+
+    def _filter_generated_files(self, generated_files: list, problems: list) -> list:
+        """Keep only generated files belonging to the surviving problems."""
+        wanted_names = {p.name for p in problems}
+        kept = [gf for gf in generated_files if getattr(gf, "problem_name", None) in wanted_names]
+        return kept if kept else generated_files
 
     def _copy_generated_files(self, generated_files: list) -> int:
         """Copy generated files from the main checkout into the worktree."""

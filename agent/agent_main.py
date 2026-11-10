@@ -67,6 +67,15 @@ class SystemDesignAgent:
         if history_slugs:
             logger.info("Run history: %d previously added slugs will be skipped", len(history_slugs))
 
+        # Problems already proposed in open agent PRs are treated as
+        # "handled" so new runs only PR genuinely fresh content — old PRs
+        # stay pending without blocking progress.
+        pending_slugs = self._load_pending_slugs()
+        if pending_slugs:
+            logger.info("Open PRs: %d slugs already proposed and pending review",
+                        len(pending_slugs))
+            history_slugs = history_slugs | pending_slugs
+
         # 1. Scrape trending problems (or reuse state saved by an earlier
         #    pipeline stage to avoid a second full scrape)
         logger.info("Step 1/5: Scraping trending problems from web resources...")
@@ -130,6 +139,25 @@ class SystemDesignAgent:
         # Return what was actually generated (missing is pre-truncation and
         # includes problems dropped by the per-run cap)
         return generated if pr_url else [], pr_url or ""
+
+    @staticmethod
+    def _load_pending_slugs() -> set:
+        """Slugs already proposed in open agent PRs.
+
+        Populated by the CI discover stage (which runs GitHubClient
+        .slugs_in_open_prs() and dumps one slug per line). Local runs
+        without that file simply get an empty set. Never raises.
+        """
+        path = os.environ.get("PENDING_PR_SLUGS_FILE")
+        if not path or not Path(path).exists():
+            return set()
+        try:
+            slugs = {ln.strip() for ln in Path(path).read_text().splitlines() if ln.strip()}
+            logger.info("Loaded %d pending-PR slugs from %s", len(slugs), path)
+            return slugs
+        except OSError as exc:
+            logger.warning("Failed to read pending-PR slugs: %s", exc)
+            return set()
 
     # ------------------------------------------------------------------ #
     #  Cross-stage state sharing (CI passes SCRAPED_STATE_DIR; also lets a
