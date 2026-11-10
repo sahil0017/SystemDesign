@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.systemdesign</groupId>
+        <artifactId>java</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>java-problems</artifactId>
+
+    <name>Java Problems</name>
+    <description>Java general problems</description>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>add-problems-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>actor-model</source>
+                                <source>atomic-reference-field-updater</source>
+                                <source>blocking-queue</source>
+                                <source>cache-expiry</source>
+                                <source>completion-advanced</source>
+                                <source>concurrency</source>
+                                <source>disruptor-pattern</source>
+                                <source>double-checked-locking</source>
+                                <source>exchanger</source>
+                                <source>latch-barrier</source>
+                                <source>lock-free-stack</source>
+                                <source>phaser</source>
+                                <source>producer-consumer</source>
+                                <source>rate-limiter</source>
+                                <source>read-write-lock-fair</source>
+                                <source>readwritelock</source>
+                                <source>semaphore</source>
+                                <source>stamped-lock</source>
+                                <source>structured-concurrency</source>
+                                <source>thread-pool</source>
+                                <source>virtual-threads</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

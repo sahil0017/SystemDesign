@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.systemdesign</groupId>
+        <artifactId>lld</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>lld-problems</artifactId>
+
+    <name>LLD Problems</name>
+    <description>LLD design problems: easy, medium, hard, and concurrency</description>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <!-- Easy problems -->
+                    <execution>
+                        <id>add-easy-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>easy/parking-lot</source>
+                                <source>easy/lru-cache</source>
+                                <source>easy/snake-and-ladder</source>
+                                <source>easy/snake-game</source>
+                                <source>easy/task-management-system</source>
+                                <source>easy/tic-tac-toe</source>
+                                <source>easy/vending-machine</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                    <!-- Medium problems -->
+                    <execution>
+                        <id>add-medium-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>medium/atm</source>
+                                <source>medium/car-rental-system</source>
+                                <source>medium/concert-ticket-booking</source>
+                                <source>medium/cricinfo-scorecard</source>
+                                <source>medium/digital-wallet</source>
+                                <source>medium/elevator-system</source>
+                                <source>medium/hotel-management-system</source>
+                                <source>medium/library-management</source>
+                                <source>medium/logging-framework</source>
+                                <source>medium/movie-ticket-booking</source>
+                                <source>medium/notification-service</source>
+                                <source>medium/pub-sub-system</source>
+                                <source>medium/social-network</source>
+                                <source>medium/splitwise</source>
+                                <source>medium/stack-overflow</source>
+                                <source>medium/text-editor</source>
+                                <source>medium/traffic-signal</source>
+                                <source>medium/airline-management-system</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                    <!-- Hard problems -->
+                    <execution>
+                        <id>add-hard-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>hard/amazon</source>
+                                <source>hard/chess</source>
+                                <source>hard/coffee-vending-machine</source>
+                                <source>hard/course-registration</source>
+                                <source>hard/cricinfo</source>
+                                <source>hard/food-delivery</source>
+                                <source>hard/linkedin</source>
+                                <source>hard/movie-ticket-booking</source>
+                                <source>hard/online-auction</source>
+                                <source>hard/restaurant-management</source>
+                                <source>hard/ride-sharing</source>
+                                <source>hard/spotify</source>
+                                <source>hard/stock-exchange</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                    <!-- Concurrency problems -->
+                    <execution>
+                        <id>add-concurrency-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>concurrency/bank-transaction</source>
+                                <source>concurrency/call-center-queue</source>
+                                <source>concurrency/concurrent-bloom-filter</source>
+                                <source>concurrency/concurrent-hashmap</source>
+                                <source>concurrency/delivery-truck-loading</source>
+                                <source>concurrency/jigsaw-puzzle-builder</source>
+                                <source>concurrency/multiplayer-game-sync</source>
+                                <source>concurrency/online-matchmaking</source>
+                                <source>concurrency/rocket-launch-countdown</source>
+                                <source>concurrency/thread-pool</source>
+                                <source>concurrency/thread-safe-blocking-queue</source>
+                                <source>concurrency/thread-safe-cache</source>
+                                <source>concurrency/traffic-light</source>
+                                <source>concurrency/train-deadlock</source>
+                                <source>concurrency/warehouse-packing</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

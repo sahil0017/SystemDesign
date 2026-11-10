@@ -28,5 +28,10 @@ dependency-reduced-pom.xml
 .DS_Store
 Thumbs.db
 
+# Python / Agent
+__pycache__/
+*.pyc
+*.pyo
+
 # Logs
 *.log

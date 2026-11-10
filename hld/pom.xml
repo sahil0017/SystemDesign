@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.systemdesign</groupId>
+        <artifactId>system-design-practice</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>hld</artifactId>
+
+    <name>High Level Design</name>
+    <description>HLD system design problems and case studies</description>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <!-- HLD Problems -->
+                    <execution>
+                        <id>add-hld-problems-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>problems/ad-click-aggregation</source>
+                                <source>problems/ad-tech-platform</source>
+                                <source>problems/cache</source>
+                                <source>problems/cdn</source>
+                                <source>problems/chat-system</source>
+                                <source>problems/chatgpt</source>
+                                <source>problems/ci-cd-pipeline</source>
+                                <source>problems/deployment-system</source>
+                                <source>problems/digital-wallet</source>
+                                <source>problems/dropbox</source>
+                                <source>problems/email-service</source>
+                                <source>problems/flash-sale</source>
+                                <source>problems/flight-booking</source>
+                                <source>problems/fraud-detection</source>
+                                <source>problems/google-docs</source>
+                                <source>problems/google-drive</source>
+                                <source>problems/google-maps</source>
+                                <source>problems/hotel-reservation</source>
+                                <source>problems/id-generator</source>
+                                <source>problems/iot-pipeline</source>
+                                <source>problems/key-value-store</source>
+                                <source>problems/leetcode</source>
+                                <source>problems/live-video-streaming</source>
+                                <source>problems/llm-inference-platform</source>
+                                <source>problems/load-balancer</source>
+                                <source>problems/message-queue</source>
+                                <source>problems/metrics-monitoring</source>
+                                <source>problems/netflix</source>
+                                <source>problems/news-feed</source>
+                                <source>problems/rag-system</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                    <!-- HLD Case Studies -->
+                    <execution>
+                        <id>add-hld-case-studies-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>case-studies/ecommerce-system</source>
+                                <source>case-studies/instagram</source>
+                                <source>case-studies/notification-system</source>
+                                <source>case-studies/payment-system</source>
+                                <source>case-studies/uber</source>
+                                <source>case-studies/url-shortener</source>
+                                <source>case-studies/whatsapp</source>
+                                <source>case-studies/youtube</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
