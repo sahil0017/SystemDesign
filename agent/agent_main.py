@@ -282,6 +282,14 @@ async def main() -> None:
 
     if stage == "discover":
         # Discovery surface: scrape + dedup ONLY — no files, no PR.
+        # First reconcile any agent PRs that were merged/closed since the
+        # last run, so the ledger is always current before dedup.
+        from agent.pr_tracker import PRMergeTracker
+        tracker = PRMergeTracker(agent.wiki, agent.repo_path, dry_run=settings.DRY_RUN)
+        recon = tracker.reconcile()
+        emit_result("RECONCILE_RESULT", merged=recon["merged"], closed=recon["closed"],
+                    promoted=recon["promoted"])
+
         missing, _ = await agent.run(history, dry_surface=True)
         emit_result(
             "DISCOVER_RESULT",
@@ -295,6 +303,17 @@ async def main() -> None:
 
     if stage == "publish":
         emit_result("PUBLISH_RESULT", generated=len(added), pr_url=pr_url or "none")
+        return
+
+    if stage == "track-merges":
+        # Standalone reconciliation: promote merged PRs to the ledger,
+        # release closed ones. Runs on its own hourly schedule so ledger
+        # updates don't wait for the next full agent cycle.
+        from agent.pr_tracker import PRMergeTracker
+        tracker = PRMergeTracker(agent.wiki, agent.repo_path, dry_run=settings.DRY_RUN)
+        recon = tracker.reconcile()
+        emit_result("RECONCILE_RESULT", merged=recon["merged"], closed=recon["closed"],
+                    open=recon["open"], promoted=recon["promoted"])
         return
 
     # Persist newly added problems locally (wiki ledger is updated inside

@@ -4,6 +4,8 @@ on:
   schedule:
     # Every 3 hours, off the hour (minute 7) to dodge GitHub's contention window
     - cron: "7 */3 * * *"
+    # Merge-tracker reconciliation — hourly, so merged PRs hit the ledger fast
+    - cron: "23 * * * *"
   workflow_dispatch:
     inputs:
       force_run:
@@ -33,12 +35,86 @@ concurrency:
 
 jobs:
   # ------------------------------------------------------------------ #
-  #  Stage 1 — Validate: lint + unit tests
+  #  Hourly — Track merged/closed agent PRs and reconcile the ledger
+  #  (runs on its own cron; skipped for other event types)
+  # ------------------------------------------------------------------ #
+  track-merges:
+    name: "0 · Track merges → update ledger"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '23 * * * *' ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies + gh
+        run: |
+          pip install -r agent/requirements.txt
+          type gh >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y gh; }
+
+      - name: Configure Git
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Reconcile merged/closed PRs into ledger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_PATH: ${{ github.workspace }}
+          LOG_LEVEL: INFO
+        run: |
+          python -m agent.agent_main --stage track-merges 2>&1 | tee track.log
+          LINE=$(grep "RECONCILE_RESULT" track.log | tail -1 || true)
+          if [ -n "$LINE" ]; then
+            MERGED=$(echo "$LINE" | sed -E 's/.*merged=([0-9]+).*/\1/')
+            PROMOTED=$(echo "$LINE" | sed -E 's/.*promoted=([0-9]+).*/\1/')
+            {
+              echo "### 🔁 Merge tracker"
+              echo "- Agent PRs merged: **$MERGED**"
+              echo "- Slugs promoted to ledger: **$PROMOTED**"
+              echo '- PR bodies: see PR-Tracker.md in `.agent/`'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit ledger updates
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .agent/ || true
+          if git diff --cached --quiet; then
+            echo "No ledger changes to commit"
+          else
+            git commit -m "chore(agent): reconcile merged PRs into problem ledger [skip ci]"
+            git pull --rebase origin main || true
+            git push origin HEAD:main || true
+            echo "✅ Ledger updated and pushed"
+          fi
+
+  # ------------------------------------------------------------------ #
+  #  Stage 1 — Validate: lint + unit tests (skipped on merge-tracker cron)
   # ------------------------------------------------------------------ #
   validate:
     name: "1 · Validate (lint + tests)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: >
+      !(github.event_name == 'schedule' && github.event.schedule == '23 * * * *')
     steps:
       - uses: actions/checkout@v4
 
