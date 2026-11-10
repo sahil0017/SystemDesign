@@ -163,11 +163,14 @@ class GitHubClient:
             return False
 
     async def create_pr(self, generated_files: list, problems: list) -> str:
-        """Create a GitHub PR with the new problem files.
+        """Create (or idempotently update) the agent PR with new problem files.
 
-        Existing open agent PRs are NOT a blocker: their contents are
-        compared against this run's problems, and only genuinely-new ones
-        go into a fresh PR (older PRs remain untouched for review).
+        Idempotency model: at most ONE open agent PR at any time.
+        - No open agent PR  → create a fresh branch + PR.
+        - Open agent PR     → reuse its head branch, append the new files as
+          another commit, and update the PR title/body. Old PRs are never
+          duplicated; their contents stay pending review.
+        Problems already proposed in open PRs are filtered out first.
         """
         pending = await self.slugs_in_open_prs()
         open_prs = await self.open_agent_prs()
@@ -186,17 +189,45 @@ class GitHubClient:
         elif open_prs:
             logger.info("%d open agent PR(s) exist but none expose parseable slugs; proceeding", len(open_prs))
 
-        branch = self._generate_branch_name()
-        logger.info("Creating PR on branch: %s", branch)
+        # Idempotent update path: piggyback on the most recent open agent PR.
+        existing_pr = None
+        if open_prs:
+            # keep the newest (gh returns most-recent-first for state=open)
+            existing_pr = open_prs[0]
+            if len(open_prs) > 1:
+                logger.warning("%d open agent PRs found (historical duplicates). "
+                               "Reusing PR #%s; consider closing the others.",
+                               len(open_prs), existing_pr.get("number"))
+
+        if existing_pr and existing_pr.get("headRefName"):
+            branch = existing_pr["headRefName"]
+            base_ref = branch  # build on the PR branch, not origin/main
+            logger.info("Updating existing agent PR #%s on branch %s",
+                        existing_pr["number"], branch)
+        else:
+            branch = self._generate_branch_name()
+            base_ref = "origin/main"
+            logger.info("Creating new agent PR on branch: %s", branch)
 
         # Fetch latest main into a temp ref without touching the working tree
         await self._run_git("fetch", "origin", "main:refs/remotes/origin/main")
 
-        # Build the branch from origin/main WITHOUT resetting/cleaning the
-        # local working tree — this preserves any local (uncommitted) changes.
-        result = await self._run_git("worktree", "add", "-b", branch,
-                                     str(self.repo_path.parent / (self.repo_path.name + "-agent-pr")),
-                                     "origin/main")
+        # Build the worktree WITHOUT resetting/cleaning the local working
+        # tree — this preserves any local (uncommitted) changes.
+        wt_path = self.repo_path.parent / (self.repo_path.name + "-agent-pr")
+        if existing_pr:
+            # Branch already exists remotely — check it out in the worktree
+            result = await self._run_git("worktree", "add", wt_path, branch)
+            if result.returncode != 0:
+                # branch may have been deleted while PR stayed open — fall back
+                logger.warning("Could not check out branch %s (%s); falling back to a new branch",
+                               branch, result.stderr[:120])
+                existing_pr = None
+                branch = self._generate_branch_name()
+                base_ref = "origin/main"
+                result = await self._run_git("worktree", "add", "-b", branch, wt_path, "origin/main")
+        else:
+            result = await self._run_git("worktree", "add", "-b", branch, wt_path, "origin/main")
         if result.returncode != 0:
             logger.error("Failed to create worktree branch %s: %s", branch, result.stderr[:200])
             await self._run_git("worktree", "prune")
@@ -204,26 +235,60 @@ class GitHubClient:
 
         # Point subsequent git operations at the worktree
         original_repo_path = self.repo_path
-        wt_path = self.repo_path.parent / (self.repo_path.name + "-agent-pr")
         self.repo_path = wt_path
 
         try:
             # Copy the generated files (and modified README) from the main
-            # checkout into the fresh worktree — the worktree starts clean,
-            # so without this step `git status` would be empty and no PR
+            # checkout into the worktree — the worktree starts clean, so
+            # without this step `git status` would be empty and no PR
             # would ever be created.
             copied = self._copy_generated_files(generated_files)
             logger.info("Copied %d generated files into worktree", copied)
-            pr_url = await self._commit_and_push(branch, problems)
+            pushed = await self._commit_and_push(branch, problems)
         finally:
             self.repo_path = original_repo_path
             await self._run_git("worktree", "remove", "--force", str(wt_path))
             await self._run_git("worktree", "prune")
 
-        if not pr_url:
+        if not pushed:
             return ""
 
+        if existing_pr:
+            # Update the existing PR's title/body/commit count — NO new PR.
+            pr_url = existing_pr.get("url") or \
+                f"https://github.com/{self.repo_owner}/{self.repo_name}/pull/{existing_pr['number']}"
+            await self._refresh_pr(existing_pr, problems)
+            return pr_url
+
         return await self._create_pull_request(branch, problems)
+
+    async def _refresh_pr(self, pr: dict, problems: list) -> None:
+        """Update the existing agent PR's body to reflect the new cumulative content."""
+        num = pr["number"]
+        # fetch current body, append an update note (idempotent per run)
+        body_res = await self._run_gh(
+            "pr", "view", str(num),
+            "--repo", f"{self.repo_owner}/{self.repo_name}",
+            "--json", "body", "--jq", ".body",
+        )
+        current = body_res.stdout if body_res.returncode == 0 and body_res.stdout.strip() else ""
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        added_section = f"\n### 🔄 Update {stamp}\n"
+        added_section += f"Appended **{len(problems)}** new problem sets:\n"
+        for p in problems[:20]:
+            added_section += f"- **{p.name}** ({p.category})\n"
+        if len(problems) > 20:
+            added_section += f"… and {len(problems) - 20} more\n"
+        marker = "<!-- agent-update-history -->"
+        if marker not in current:
+            current = current.rstrip() + f"\n\n{marker}\n"
+        # insert newest update right after the marker (top of update history)
+        new_body = current.replace(marker, marker + "\n" + added_section, 1)
+        await self._run_gh("pr", "edit", str(num),
+                           "--repo", f"{self.repo_owner}/{self.repo_name}",
+                           "--body", new_body)
+        logger.info("PR #%s updated with %d new problems (no duplicate PR created)",
+                    num, len(problems))
 
     async def _commit_and_push(self, branch: str, problems: list) -> str:
         """Stage, commit, and push changes in the isolated worktree."""
@@ -243,6 +308,9 @@ class GitHubClient:
 
         remote_url = f"https://{self.repo_owner}:{settings.GITHUB_TOKEN}@github.com/{self.repo_owner}/{self.repo_name}.git"
         await self._run_git("remote", "set-url", "origin", remote_url)
+        # --force-with-lease is safe here: we build the worktree FROM the
+        # remote branch tip when updating an existing PR, so we can only
+        # fast-forward by exactly our own new commit.
         result = await self._run_git("push", "-u", "origin", branch, "--force-with-lease")
         if result.returncode != 0:
             logger.error("Failed to push branch %s: %s", branch, result.stderr[:200])
